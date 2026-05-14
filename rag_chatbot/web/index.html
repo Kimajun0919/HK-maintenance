@@ -39,7 +39,7 @@
       .app {
         min-height: 100vh;
         display: grid;
-        grid-template-columns: 310px minmax(0, 1fr);
+        grid-template-columns: 360px minmax(0, 1fr);
       }
       .sidebar {
         border-right: 1px solid var(--line);
@@ -80,6 +80,17 @@
         background: #ecfdf5;
       }
       .doc-filter { padding: 12px; border-bottom: 1px solid var(--line); }
+      .side-search {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 72px;
+        gap: 8px;
+      }
+      .section-title {
+        padding: 12px 10px 4px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
       .doc-filter input, .searchbar input, .chatbox textarea, .toolbar select {
         width: 100%;
         border: 1px solid var(--line);
@@ -155,7 +166,7 @@
       .workspace {
         height: 100%;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 420px;
+        grid-template-columns: minmax(0, 1fr) 380px;
         gap: 0;
       }
       .pane {
@@ -170,6 +181,18 @@
         grid-template-columns: minmax(0, 1fr) 96px;
         gap: 8px;
         margin-bottom: 14px;
+      }
+      .reader-empty {
+        height: 100%;
+        display: grid;
+        place-items: center;
+      }
+      .workspace > .pane:first-child > .searchbar,
+      .workspace > .pane:first-child > .answer,
+      .workspace > .pane:first-child > .result,
+      .workspace > .pane:first-child > .empty,
+      .workspace > .pane:nth-child(2) > .doc-view {
+        display: none;
       }
       .result, .answer, .doc-view, .chat-card {
         background: var(--panel);
@@ -485,10 +508,10 @@
 
         const visibleDocs = React.useMemo(() => {
           const q = filter.trim().toLowerCase();
-          if (!q) return docs.slice(0, 250);
+          if (!q) return docs.slice(0, 180);
           return docs.filter((item) =>
             [item.title, item.customer, item.source].join(" ").toLowerCase().includes(q)
-          ).slice(0, 250);
+          ).slice(0, 180);
         }, [docs, filter]);
 
         const openDoc = (source) => {
@@ -503,10 +526,12 @@
 
         const runSearch = (event) => {
           event && event.preventDefault();
-          if (!query.trim()) return;
+          const term = (filter.trim() || query.trim());
+          if (!term) return;
+          setQuery(term);
           setLoading("search");
           setError("");
-          api("/api/search?q=" + encodeURIComponent(query.trim()) + "&top_k=" + topK)
+          api("/api/search?q=" + encodeURIComponent(term) + "&top_k=" + topK)
             .then(setSearch)
             .catch((err) => setError(err.message))
             .finally(() => setLoading(""));
@@ -537,14 +562,24 @@
               h("button", { className: "active", onClick: () => window.scrollTo(0, 0) }, "문서/검색"),
               h("button", { onClick: () => location.href = "/chat/" }, "기존 챗")
             ),
-            h("div", { className: "doc-filter" },
+            h("form", { className: "doc-filter side-search", onSubmit: runSearch },
               h("input", {
                 value: filter,
                 onChange: (event) => setFilter(event.target.value),
                 placeholder: "고객사, 문서명, 경로 검색"
-              })
+              }),
+              h("button", { className: "primary", type: "submit" }, "검색")
             ),
             h("div", { className: "doc-list" },
+              search && [
+                h("div", { key: "result-title", className: "section-title" }, "검색 결과"),
+                search.results.map((item) => h("button", {
+                  key: "result-" + item.source + item.title,
+                  className: "doc-item",
+                  onClick: () => openDoc(item.source)
+                }, h("strong", null, item.title), h("span", null, item.source + " / score " + item.score))),
+                h("div", { key: "doc-title", className: "section-title" }, "문서 목록")
+              ],
               visibleDocs.map((item) => h("button", {
                 key: item.source,
                 className: "doc-item " + (selected === item.source ? "selected" : ""),
@@ -565,6 +600,15 @@
             h("section", { className: "content" },
               h("div", { className: "workspace" },
                 h("div", { className: "pane" },
+                  doc ? h("div", { className: "doc-view" }, [
+                    h("div", { key: "head", className: "doc-header" },
+                      h("div", { className: "path" }, doc.source),
+                      h("h2", null, doc.title)
+                    ),
+                    h("div", { key: "content", className: "doc-body" }, h(Markdown, { text: doc.content }))
+                  ]) : h("div", { className: "reader-empty" },
+                    h("div", { className: "empty" }, search ? "왼쪽 검색 결과에서 자료를 선택하세요." : "왼쪽에서 자료를 검색하거나 문서를 선택하세요.")
+                  ),
                   h("form", { className: "searchbar", onSubmit: runSearch },
                     h("input", {
                       value: query,
