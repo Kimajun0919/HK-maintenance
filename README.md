@@ -19,6 +19,8 @@
 | `organized_maintenance_docs/VALIDATION_REPORT.md` | 표준형 정리본 누락 검증 및 이미지 연결 검증 결과 |
 | `organize_maintenance_docs.py` | 표준형 정리본 재생성용 스크립트 |
 | `simplify_maintenance_docs.py` | 간소화 정리본 재생성용 스크립트 |
+| `integrate_hk_customer_info.py` | HK 공통매뉴얼의 고객사별 정보 분리 스크립트 |
+| `rag_chatbot/` | 경량 로컬 LLM RAG 챗봇 |
 
 ## 정리 결과 요약
 
@@ -89,4 +91,34 @@ python organize_maintenance_docs.py
 
 ```powershell
 python simplify_maintenance_docs.py
+```
+
+HK 공통매뉴얼의 고객사별 추가 정보를 다시 반영해야 할 때는 아래 명령을 실행합니다.
+
+```powershell
+python integrate_hk_customer_info.py
+```
+
+## RAG 챗봇
+
+`rag_chatbot/`에는 `organized_maintenance_docs_simple`을 대상으로 동작하는 경량 RAG 챗봇이 있습니다.
+
+- 권장 배포: Hugging Face Spaces Gradio
+- 기본 LLM: `Qwen/Qwen2.5-0.5B-Instruct`
+- 검색 방식: 순수 Python 문자 n-gram 검색
+- LLM 로딩 실패 시: 검색 근거 기반 답변으로 자동 fallback
+
+로컬 실행:
+
+```powershell
+cd rag_chatbot
+pip install -r requirements.txt
+python app.py
+```
+
+LLM 없이 검색 파이프라인만 확인:
+
+```powershell
+$env:USE_LLM='0'
+python app.py
 ```
