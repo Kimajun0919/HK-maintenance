@@ -13,9 +13,9 @@ DEFAULT_DOCS_DIR = APP_DIR / "organized_maintenance_docs_simple"
 if not DEFAULT_DOCS_DIR.exists():
     DEFAULT_DOCS_DIR = APP_DIR.parent / "organized_maintenance_docs_simple"
 DOCS_DIR = Path(os.getenv("DOCS_DIR", DEFAULT_DOCS_DIR)).resolve()
-MODEL_NAME = os.getenv("LOCAL_LLM_MODEL", "HuggingFaceTB/SmolLM2-135M-Instruct")
+MODEL_NAME = os.getenv("LOCAL_LLM_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
 USE_LLM = os.getenv("USE_LLM", "1") != "0"
-MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "180"))
+MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "512"))
 
 
 QUERY_ALIASES = {
