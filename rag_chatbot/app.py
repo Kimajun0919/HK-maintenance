@@ -44,7 +44,20 @@ def split_markdown(path: Path, text: str, max_chars: int = 1800, overlap: int = 
             continue
         section_title_match = re.search(r"^#{1,3}\s+(.+)$", section, flags=re.M)
         section_title = section_title_match.group(1).strip() if section_title_match else title
-        if any(skip in section_title for skip in ("문서 개요", "핵심 요약", "원본 보존 내용", "기존 정리본 문서", "공통 작업 가능 여부")):
+        if any(
+            skip in section_title
+            for skip in (
+                "문서 개요",
+                "핵심 요약",
+                "상세 내용",
+                "작업 절차",
+                "주의사항",
+                "오류 및 대응 방법",
+                "원본 보존 내용",
+                "기존 정리본 문서",
+                "공통 작업 가능 여부",
+            )
+        ):
             continue
 
         start = 0
@@ -222,16 +235,95 @@ def source_based_answer(query: str, results: list[tuple[Chunk, float]]) -> str:
     if not results:
         return "관련 문서를 찾지 못했습니다. 고객사명이나 기능명을 더 구체적으로 입력해 주세요."
 
+    best_source = results[0][0].source
+    primary = []
+    seen_chunk_text: set[str] = set()
+    seen_titles: set[str] = set()
+    for chunk, score in results:
+        if chunk.source != best_source:
+            continue
+        if chunk.title in seen_titles:
+            continue
+        seen_titles.add(chunk.title)
+        key = re.sub(r"\s+", " ", chunk.text[:500])
+        if key in seen_chunk_text:
+            continue
+        seen_chunk_text.add(key)
+        primary.append((chunk, score))
+    if not primary:
+        primary = results[:2]
+
     lines = [
-        "LLM 생성 없이 검색 근거를 기준으로 답합니다.",
+        "## 검색 기반 답변",
         "",
-        "확인된 관련 근거:",
+        f"질문과 가장 관련도가 높은 문서는 `{best_source}`입니다.",
+        "",
+        "### 핵심 근거",
     ]
-    for idx, (chunk, score) in enumerate(results, 1):
-        preview = re.sub(r"\s+", " ", chunk.text)[:450]
-        lines.append(f"{idx}. `{chunk.source}` / {chunk.title} / score={score:.3f}")
-        lines.append(f"   {preview}")
+    for idx, (chunk, score) in enumerate(primary[:3], 1):
+        lines.append(f"{idx}. `{chunk.title}`")
+        bullets = extract_readable_bullets(chunk.text)
+        for bullet in bullets[:10]:
+            lines.append(f"   - {bullet}")
+
+    lines.extend(["", "### 참고 문서"])
+    seen: set[str] = set()
+    for chunk, score in results:
+        key = f"{chunk.source}|{chunk.title}"
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}")
     return "\n".join(lines)
+
+
+def extract_readable_bullets(text: str) -> list[str]:
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.M)
+    text = text.replace("아래 내용은 원본 md 문서의 본문 전체입니다.", "")
+    text = text.replace("내용 누락 방지를 위해 원문 표현, 계정 정보, 경로, URL, 메모를 삭제하지 않고 보존했습니다.", "")
+
+    candidates: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        line = re.sub(r"^[-*]\s+", "", line)
+        line = re.sub(r"^\d+\.\s+", "", line)
+        if line.startswith("|") and line.endswith("|"):
+            continue
+        if line in {"```", "````markdown", "````"}:
+            continue
+        if len(line) > 220:
+            parts = re.split(
+                r"\s{2,}|(?<=\))\s+|(?<=!)\s+|(?=https?://)|(?=\b[a-zA-Z0-9_.-]{3,}\s+[A-Za-z0-9!@#$%^&*()_+=~.-]{4,})",
+                line,
+            )
+            candidates.extend(part.strip() for part in parts if part.strip())
+        else:
+            candidates.append(line)
+
+    important: list[str] = []
+    keywords = [
+        "http", "https", "id", "pw", "비밀번호", "계정", "인증", "접속", "경로",
+        "서버", "관리자", "주의", "적용", "메인", "이미지", "inc", "ftp", "vpn",
+    ]
+    for line in candidates:
+        lower = line.lower()
+        if any(keyword in lower for keyword in keywords) or re.search(r"[/\\][\w가-힣./\\_-]+", line):
+            important.append(line)
+    for line in candidates:
+        if line not in important:
+            important.append(line)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for line in important:
+        normalized = re.sub(r"\s+", " ", line).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
 
 
 chunks = load_chunks()
@@ -364,8 +456,9 @@ def build_demo():
             combined = (
                 f"{bot_message}\n\n"
                 "---\n"
-                "LLM 답변:\n"
+                "<details><summary>LLM 답변 보기</summary>\n\n"
                 f"{llm_message}"
+                "\n\n</details>"
             )
             if chat_format == "messages":
                 chat_history[-1] = {"role": "assistant", "content": combined}
