@@ -452,7 +452,7 @@
 
       const inlineMarkdown = (value, baseSource = "") => {
         let text = escapeHtml(value);
-        text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt, rawUrl) => {
+        text = text.replace(/!\[([^\]]*)\]\((.+)\)/g, (_match, alt, rawUrl) => {
           const cleanUrl = rawUrl.trim().replace(/\s+&quot;[^&]*&quot;$/, "");
           return `<img src="${assetUrl(cleanUrl, baseSource)}" alt="${alt}" loading="lazy" />`;
         });

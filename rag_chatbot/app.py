@@ -600,11 +600,20 @@ def _safe_asset_path(source: str, asset_path: str) -> Path | None:
     images_dir = doc_path.parent / "images"
     if images_dir.exists():
         original_name = Path(decoded_path).name
+        doc_key = re.sub(r"_\d{8}$", "", doc_path.stem)
         name_match = re.match(r"image(?:\s+(\d+))?\.[A-Za-z0-9]+$", original_name, flags=re.I)
         if name_match:
             number = name_match.group(1)
-            pattern = f"*image_{number}_*.png" if number else "*image_*.png"
-            candidates = sorted(images_dir.glob(pattern))
+            patterns = (
+                [f"{doc_key}_image_{number}_*.png", f"*image_{number}_*.png"]
+                if number
+                else [f"{doc_key}_image_*.png", f"{doc_key}_image.*", "*image_*.png"]
+            )
+            candidates = []
+            for pattern in patterns:
+                candidates = sorted(images_dir.glob(pattern))
+                if candidates:
+                    break
             if candidates:
                 return candidates[0].resolve()
         direct_matches = sorted(images_dir.glob(f"*{Path(original_name).stem.replace(' ', '_')}*"))
