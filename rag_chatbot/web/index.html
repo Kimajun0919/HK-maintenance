@@ -584,7 +584,7 @@
         const [chatQuery, setChatQuery] = React.useState("");
         const [chatAnswer, setChatAnswer] = React.useState("");
         const [topK, setTopK] = React.useState(5);
-        const [answerProvider, setAnswerProvider] = React.useState("quick");
+        const [answerProvider, setAnswerProvider] = React.useState("local");
         const [claudeApiKey, setClaudeApiKey] = React.useState("");
         const [claudeModel, setClaudeModel] = React.useState("claude-sonnet-4-5");
         const [useLlm, setUseLlm] = React.useState(false);
@@ -782,6 +782,7 @@
                     placeholder: "문서 기반으로 질문하기"
                   }),
                   h("select", { value: answerProvider, onChange: (event) => setAnswerProvider(event.target.value) },
+                    h("option", { value: "local" }, "로컬 LLM (기본)"),
                     h("option", { value: "quick" }, "문서 기반 빠른 답변"),
                     h("option", { value: "claude" }, "Claude API")
                   ),

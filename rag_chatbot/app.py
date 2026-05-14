@@ -770,7 +770,7 @@ def create_api_app():
         use_llm = bool(payload.get("useLlm", False))
         if not query:
             return _json_response({"error": "query is required"}, status_code=400)
-        provider = str(payload.get("provider", "quick")).strip().lower()
+        provider = str(payload.get("provider", "local")).strip().lower()
         if provider == "claude":
             response = claude_answer(
                 query,
@@ -778,8 +778,10 @@ def create_api_app():
                 str(payload.get("apiKey", "")),
                 str(payload.get("model", DEFAULT_CLAUDE_MODEL)),
             )
+        elif provider == "quick":
+            response = immediate_answer(query, top_k)
         else:
-            response = llm_answer(query, top_k) if use_llm and USE_LLM else immediate_answer(query, top_k)
+            response = llm_answer(query, top_k) if USE_LLM else immediate_answer(query, top_k)
         return {"query": query, "answer": response}
 
     @api_app.get("/robots.txt")
