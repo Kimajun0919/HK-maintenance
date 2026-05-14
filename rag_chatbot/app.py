@@ -9,7 +9,10 @@ from pathlib import Path
 
 
 APP_DIR = Path(__file__).resolve().parent
-DOCS_DIR = Path(os.getenv("DOCS_DIR", APP_DIR.parent / "organized_maintenance_docs_simple")).resolve()
+DEFAULT_DOCS_DIR = APP_DIR / "organized_maintenance_docs_simple"
+if not DEFAULT_DOCS_DIR.exists():
+    DEFAULT_DOCS_DIR = APP_DIR.parent / "organized_maintenance_docs_simple"
+DOCS_DIR = Path(os.getenv("DOCS_DIR", DEFAULT_DOCS_DIR)).resolve()
 MODEL_NAME = os.getenv("LOCAL_LLM_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
 USE_LLM = os.getenv("USE_LLM", "1") != "0"
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "320"))
@@ -41,7 +44,7 @@ def split_markdown(path: Path, text: str, max_chars: int = 1800, overlap: int = 
             continue
         section_title_match = re.search(r"^#{1,3}\s+(.+)$", section, flags=re.M)
         section_title = section_title_match.group(1).strip() if section_title_match else title
-        if any(skip in section_title for skip in ("문서 개요", "핵심 요약", "원본 보존 내용", "기존 정리본 문서")):
+        if any(skip in section_title for skip in ("문서 개요", "핵심 요약", "원본 보존 내용", "기존 정리본 문서", "공통 작업 가능 여부")):
             continue
 
         start = 0
@@ -111,10 +114,17 @@ class Retriever:
             return []
         qv = self._vector(query)
         qn = self._norm(qv)
-        scored = [
-            (idx, self._cosine(qv, qn, vector, norm))
-            for idx, (vector, norm) in enumerate(zip(self.vectors, self.norms))
-        ]
+        query_terms = set(re.findall(r"[가-힣A-Za-z0-9_]{2,}", query.lower()))
+        scored = []
+        for idx, (vector, norm) in enumerate(zip(self.vectors, self.norms)):
+            score = self._cosine(qv, qn, vector, norm)
+            chunk = self.chunks[idx]
+            source_title = f"{chunk.source} {chunk.title}".lower()
+            folder = chunk.source.split("/", 1)[0].lower()
+            folder_boost = 0.45 if folder and folder in query.lower() else 0.0
+            exact_boost = sum(0.04 for term in query_terms if term in source_title)
+            exact_boost += folder_boost
+            scored.append((idx, score + exact_boost))
         scored.sort(key=lambda item: item[1], reverse=True)
         return [(self.chunks[idx], score) for idx, score in scored[:top_k] if score > 0]
 

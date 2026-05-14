@@ -21,6 +21,7 @@
 | `simplify_maintenance_docs.py` | 간소화 정리본 재생성용 스크립트 |
 | `integrate_hk_customer_info.py` | HK 공통매뉴얼의 고객사별 정보 분리 스크립트 |
 | `rag_chatbot/` | 경량 로컬 LLM RAG 챗봇 |
+| `deploy_hf_space.py` | Hugging Face Spaces 배포 번들 생성/업로드 스크립트 |
 
 ## 정리 결과 요약
 
@@ -128,3 +129,20 @@ cd rag_chatbot
 cd rag_chatbot
 .\start_local_llm.ps1
 ```
+
+Hugging Face Spaces 배포 번들 생성:
+
+```powershell
+.\rag_chatbot\.venv\Scripts\python.exe deploy_hf_space.py
+```
+
+실제 업로드:
+
+```powershell
+$env:HF_TOKEN='hf_xxx'
+$env:HF_SPACE_ID='사용자명/hk-maintenance-rag'
+$env:HF_DEPLOY='1'
+.\rag_chatbot\.venv\Scripts\python.exe deploy_hf_space.py
+```
+
+업로드되는 Space는 스크립트에서 `private=True`로 생성합니다. 문서에 계정/서버 정보가 포함되어 있으므로 공개 Space로 전환하지 않는 것을 권장합니다.
