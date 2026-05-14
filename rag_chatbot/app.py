@@ -191,6 +191,16 @@ class LocalLLM:
         return self.tokenizer.decode(generated, skip_special_tokens=True).strip()
 
 
+llm_instance: LocalLLM | None = None
+
+
+def get_llm() -> LocalLLM:
+    global llm_instance
+    if llm_instance is None:
+        llm_instance = LocalLLM()
+    return llm_instance
+
+
 def build_context(results: list[tuple[Chunk, float]], max_chars: int = 5200) -> str:
     parts: list[str] = []
     used = 0
@@ -226,16 +236,32 @@ def source_based_answer(query: str, results: list[tuple[Chunk, float]]) -> str:
 
 chunks = load_chunks()
 retriever = Retriever(chunks)
-llm = LocalLLM()
 
 
-def answer(query: str, top_k: int, history: list[dict] | None = None) -> str:
+def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
+    query = query.strip()
+    if not query:
+        return [], ""
+
+    results = retriever.search(query, top_k=top_k)
+    context = build_context(results)
+    return results, context
+
+
+def immediate_answer(query: str, top_k: int) -> str:
     query = query.strip()
     if not query:
         return "질문을 입력해 주세요."
 
-    results = retriever.search(query, top_k=top_k)
-    context = build_context(results)
+    results, context = retrieve(query, top_k)
+    if not context:
+        return "관련 문서를 찾지 못했습니다. 고객사명, 오류명, 서버/계정/작업명을 포함해 다시 질문해 주세요."
+
+    return source_based_answer(query, results)
+
+
+def llm_answer(query: str, top_k: int) -> str:
+    results, context = retrieve(query, top_k)
     if not context:
         return "관련 문서를 찾지 못했습니다. 고객사명, 오류명, 서버/계정/작업명을 포함해 다시 질문해 주세요."
 
@@ -251,6 +277,7 @@ def answer(query: str, top_k: int, history: list[dict] | None = None) -> str:
 - 불확실하면 "확인 필요"라고 표시
 - 마지막에 참고한 파일명을 bullet로 표시
 """
+    llm = get_llm()
     generated = llm.generate(prompt)
     if not generated:
         generated = source_based_answer(query, results)
@@ -260,6 +287,12 @@ def answer(query: str, top_k: int, history: list[dict] | None = None) -> str:
         for chunk, score in results
     )
     return f"{generated}\n\n---\n참고 문서:\n{sources}"
+
+
+def answer(query: str, top_k: int, history: list[dict] | None = None) -> str:
+    if USE_LLM:
+        return llm_answer(query, top_k)
+    return immediate_answer(query, top_k)
 
 
 def build_demo():
@@ -272,11 +305,11 @@ def build_demo():
 
 - 문서 경로: `{DOCS_DIR}`
 - 문서 청크: `{len(chunks)}`
-- LLM: `{MODEL_NAME if llm.enabled else "비활성 또는 로딩 실패"}`
+- LLM: `{MODEL_NAME if USE_LLM else "비활성"}`
 """
         )
-        if llm.error:
-            gr.Markdown(f"LLM 상태: `{llm.error[:500]}`")
+        if USE_LLM:
+            gr.Markdown("검색 결과를 먼저 표시한 뒤, LLM 답변이 준비되면 같은 답변 영역을 업데이트합니다.")
         chat_format = "tuples"
         try:
             chatbot = gr.Chatbot(type="messages", height=520)
@@ -288,7 +321,7 @@ def build_demo():
         gr.ClearButton([query, chatbot])
 
         def respond(message: str, chat_history: list, k: int):
-            bot_message = answer(message, int(k), chat_history)
+            bot_message = immediate_answer(message, int(k))
             if chat_format == "messages":
                 chat_history = chat_history + [
                     {"role": "user", "content": message},
@@ -296,14 +329,37 @@ def build_demo():
                 ]
             else:
                 chat_history = chat_history + [(message, bot_message)]
-            return "", chat_history
+            yield "", chat_history
+
+            if not USE_LLM:
+                return
+
+            llm_message = llm_answer(message, int(k))
+            combined = (
+                f"{bot_message}\n\n"
+                "---\n"
+                "LLM 답변:\n"
+                f"{llm_message}"
+            )
+            if chat_format == "messages":
+                chat_history[-1] = {"role": "assistant", "content": combined}
+            else:
+                chat_history[-1] = (message, combined)
+            yield "", chat_history
 
         query.submit(respond, [query, chatbot, top_k], [query, chatbot])
     return demo
 
 
-demo = build_demo()
+try:
+    demo = build_demo()
+except ModuleNotFoundError as exc:
+    if exc.name != "gradio":
+        raise
+    demo = None
 
 
 if __name__ == "__main__":
+    if demo is None:
+        raise SystemExit("gradio가 설치되어 있지 않습니다. `pip install -r requirements.txt`를 실행하세요.")
     demo.launch(ssr_mode=False)

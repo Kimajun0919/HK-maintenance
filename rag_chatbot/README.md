@@ -9,7 +9,8 @@
 - 기본 문서 경로: `../organized_maintenance_docs_simple`
 - 기본 LLM: `HuggingFaceTB/SmolLM2-135M-Instruct`
 - 검색 방식: 순수 Python 문자 n-gram 검색
-- LLM 로딩 실패 시: 검색된 근거 기반 답변으로 자동 fallback
+- 응답 방식: 검색 근거를 먼저 즉시 표시하고, LLM 답변이 준비되면 같은 답변 영역에 추가 표시
+- LLM 로딩 실패 시: 검색된 근거 기반 답변만 유지
 
 ## 로컬 실행
 
@@ -58,7 +59,8 @@ http://127.0.0.1:7860
 
 - 검색 스모크 테스트: 통과
 - 로컬 Gradio UI: `http://127.0.0.1:7860` 응답 확인
-- 기본 실행 모드: `USE_LLM=0`
+- 기본 로컬 빠른 실행 모드: `USE_LLM=0`
+- Space 기본 동작: 검색 답변 먼저 표시 후 LLM 답변 지연 업데이트
 
 ## 주의사항
 

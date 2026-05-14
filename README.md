@@ -107,7 +107,8 @@ python integrate_hk_customer_info.py
 - 권장 배포: Hugging Face Spaces Gradio
 - 기본 LLM: `Qwen/Qwen2.5-0.5B-Instruct`
 - 검색 방식: 순수 Python 문자 n-gram 검색
-- LLM 로딩 실패 시: 검색 근거 기반 답변으로 자동 fallback
+- 응답 방식: 검색 근거를 먼저 즉시 표시하고, LLM 답변이 준비되면 같은 답변 영역에 추가 표시
+- LLM 로딩 실패 시: 검색 근거 기반 답변만 유지
 
 로컬 실행:
 
