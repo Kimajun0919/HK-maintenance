@@ -16,6 +16,7 @@ ALIASES = {
     "(주)케이비손보씨앤디서비스": "KB손보CNS",
     "KBCNS": "KB손보CNS",
     "KIAPS_차세대": "KIAPS_차세대",
+    "KTOA_벤처리움": "벤처리움",
     "TOPEC": "TOPEC",
     "강동성심병원": "강동성심병원",
     "고대발전기금": "고대발전기금",
@@ -313,6 +314,21 @@ def write_customer_files(chunks: dict[str, list[tuple[str, str, str]]]) -> list[
     return results
 
 
+def cleanup_previous_generated_files() -> None:
+    for path in SIMPLE_DIR.rglob(f"*_HK공통매뉴얼_추가정보_{TODAY}.md"):
+        path.unlink()
+    for name in ["HK_CUSTOMER_INFO_INDEX.md"]:
+        path = SIMPLE_DIR / name
+        if path.exists():
+            path.unlink()
+    # Remove only directories that became empty after deleting generated HK files.
+    for directory in sorted([p for p in SIMPLE_DIR.rglob("*") if p.is_dir()], key=lambda p: len(p.parts), reverse=True):
+        try:
+            next(directory.iterdir())
+        except StopIteration:
+            directory.rmdir()
+
+
 def write_index(results: list[tuple[str, int, str]]) -> None:
     lines = [
         "# HK 공통매뉴얼 고객사별 반영 내역",
@@ -368,6 +384,7 @@ def update_simple_readme(results: list[tuple[str, int, str]]) -> None:
 
 def main() -> None:
     text = MANUAL.read_text(encoding="utf-8")
+    cleanup_previous_generated_files()
     chunks: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
     parse_report_sections(text, chunks)
     parse_ebook_webzine_sections(text, chunks)
