@@ -310,17 +310,43 @@ def build_demo():
         )
         if USE_LLM:
             gr.Markdown("검색 결과를 먼저 표시한 뒤, LLM 답변이 준비되면 같은 답변 영역을 업데이트합니다.")
-        chat_format = "tuples"
         try:
             chatbot = gr.Chatbot(type="messages", height=520)
-            chat_format = "messages"
         except TypeError:
             chatbot = gr.Chatbot(height=520)
+        data_model_name = getattr(getattr(chatbot, "data_model", None), "__name__", "")
+        chat_format = "messages" if "Messages" in data_model_name else "tuples"
         query = gr.Textbox(label="질문", placeholder="예: 대한항공 VPN 접속 방법 알려줘")
         top_k = gr.Slider(label="검색 근거 수", minimum=2, maximum=8, value=5, step=1)
         gr.ClearButton([query, chatbot])
 
+        def normalize_history(chat_history: list | None) -> list:
+            chat_history = chat_history or []
+            normalized: list = []
+            if chat_format == "messages":
+                for item in chat_history:
+                    if isinstance(item, dict) and "role" in item and "content" in item:
+                        normalized.append(item)
+                    elif isinstance(item, (list, tuple)) and len(item) == 2:
+                        user_msg, assistant_msg = item
+                        normalized.append({"role": "user", "content": str(user_msg)})
+                        normalized.append({"role": "assistant", "content": str(assistant_msg)})
+                return normalized
+
+            for item in chat_history:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    normalized.append((str(item[0]), str(item[1])))
+                elif isinstance(item, dict) and item.get("role") == "user":
+                    normalized.append((str(item.get("content", "")), ""))
+                elif isinstance(item, dict) and item.get("role") == "assistant":
+                    if normalized and normalized[-1][1] == "":
+                        normalized[-1] = (normalized[-1][0], str(item.get("content", "")))
+                    else:
+                        normalized.append(("", str(item.get("content", ""))))
+            return normalized
+
         def respond(message: str, chat_history: list, k: int):
+            chat_history = normalize_history(chat_history)
             bot_message = immediate_answer(message, int(k))
             if chat_format == "messages":
                 chat_history = chat_history + [
