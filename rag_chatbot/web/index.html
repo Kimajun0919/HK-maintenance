@@ -13,131 +13,135 @@
         --muted: #657184;
         --accent: #0f766e;
         --accent-dark: #115e59;
+        --soft: #ecfdf5;
         --warn: #9a3412;
       }
+
       * { box-sizing: border-box; }
+      html, body, #root { height: 100%; }
       body {
         margin: 0;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         color: var(--text);
         background: var(--bg);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
       button, input, select, textarea { font: inherit; }
       button {
         border: 1px solid var(--line);
+        border-radius: 6px;
         background: #fff;
         color: var(--text);
-        border-radius: 6px;
         cursor: pointer;
       }
+      button:hover { background: #f8fafc; }
       button.primary {
         border-color: var(--accent);
         background: var(--accent);
         color: #fff;
       }
       button.primary:hover { background: var(--accent-dark); }
-      .app {
-        min-height: 100vh;
-        display: grid;
-        grid-template-columns: 360px minmax(0, 1fr);
+      input, textarea, select {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--text);
+        padding: 10px 11px;
       }
-      .sidebar {
-        border-right: 1px solid var(--line);
+      textarea { resize: vertical; }
+
+      .app {
+        height: 100vh;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 320px minmax(0, 1fr) 360px;
+        overflow: hidden;
+      }
+      .left-sidebar, .right-sidebar {
+        min-height: 0;
         background: #fff;
         display: flex;
         flex-direction: column;
-        min-height: 100vh;
       }
-      .brand {
-        padding: 18px;
+      .left-sidebar { border-right: 1px solid var(--line); }
+      .right-sidebar { border-left: 1px solid var(--line); }
+      .brand, .tool-head {
+        padding: 16px;
         border-bottom: 1px solid var(--line);
       }
-      .brand h1 {
+      .brand h1, .tool-head h2 {
         margin: 0;
-        font-size: 20px;
-        line-height: 1.2;
+        font-size: 19px;
+        line-height: 1.25;
         letter-spacing: 0;
       }
-      .brand p {
-        margin: 8px 0 0;
+      .brand p, .tool-head p {
+        margin: 7px 0 0;
         color: var(--muted);
         font-size: 13px;
+        line-height: 1.45;
       }
-      .nav {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
+      .stats {
+        display: flex;
         gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .stats b { color: var(--text); }
+      .list-filter {
         padding: 12px;
         border-bottom: 1px solid var(--line);
       }
-      .nav button {
-        height: 36px;
-        font-size: 13px;
-      }
-      .nav button.active {
-        border-color: var(--accent);
-        color: var(--accent-dark);
-        background: #ecfdf5;
-      }
-      .doc-filter { padding: 12px; border-bottom: 1px solid var(--line); }
-      .side-search {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 72px;
-        gap: 8px;
-      }
-      .tool-tabs {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-      .tool-tabs button {
-        height: 34px;
-        font-size: 13px;
-      }
-      .tool-tabs button.active {
-        border-color: var(--accent);
-        color: var(--accent-dark);
-        background: #ecfdf5;
-      }
-      .side-question {
-        display: grid;
-        gap: 8px;
-      }
-      .side-question textarea {
-        width: 100%;
-        min-height: 96px;
-        resize: vertical;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        padding: 10px 11px;
-      }
-      .section-title {
-        padding: 12px 10px 4px;
-        color: var(--muted);
-        font-size: 12px;
-        font-weight: 700;
-      }
-      .doc-filter input, .searchbar input, .chatbox textarea, .toolbar select {
-        width: 100%;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        padding: 10px 11px;
-        background: #fff;
-        color: var(--text);
-      }
-      .doc-list {
+      .folder-list {
+        flex: 1;
+        min-height: 0;
         overflow: auto;
         padding: 8px;
-        min-height: 0;
+      }
+      .folder {
+        margin-bottom: 6px;
+      }
+      .folder-toggle {
+        width: 100%;
+        min-height: 34px;
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        gap: 6px;
+        align-items: center;
+        padding: 7px 8px;
+        border-color: transparent;
+        background: transparent;
+        text-align: left;
+        color: var(--text);
+      }
+      .folder-toggle:hover, .folder-toggle.open {
+        border-color: var(--line);
+        background: #f8fafc;
+      }
+      .folder-toggle strong {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+      .folder-toggle span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .doc-group {
+        padding: 2px 0 4px 22px;
       }
       .doc-item {
         width: 100%;
-        text-align: left;
         display: block;
-        padding: 10px;
-        border: 1px solid transparent;
+        padding: 8px 9px;
+        border-color: transparent;
         background: transparent;
+        text-align: left;
       }
       .doc-item:hover, .doc-item.selected {
         border-color: var(--line);
@@ -151,111 +155,164 @@
       }
       .doc-item span {
         display: block;
-        margin-top: 5px;
+        margin-top: 4px;
         color: var(--muted);
         font-size: 12px;
         overflow-wrap: anywhere;
       }
+
       .main {
         min-width: 0;
+        min-height: 0;
         display: flex;
         flex-direction: column;
       }
       .topbar {
-        height: 58px;
-        border-bottom: 1px solid var(--line);
-        background: #fff;
+        height: 54px;
+        flex: 0 0 auto;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0 18px;
-        gap: 12px;
-      }
-      .stats {
-        display: flex;
         gap: 10px;
-        flex-wrap: wrap;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+      .topbar strong {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+      }
+      .topbar span {
         color: var(--muted);
-        font-size: 13px;
+        font-size: 12px;
       }
-      .stats b { color: var(--text); }
-      .topbar a {
-        color: var(--accent-dark);
-        text-decoration: none;
-        font-weight: 600;
-        font-size: 13px;
-      }
-      .content {
+      .reader {
         flex: 1;
         min-height: 0;
-        overflow: hidden;
-      }
-      .workspace {
-        height: 100%;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        gap: 0;
-      }
-      .pane {
-        min-width: 0;
-        min-height: 0;
         overflow: auto;
-        padding: 18px;
+        padding: 22px;
       }
-      .pane + .pane { border-left: 1px solid var(--line); background: #fff; }
-      .searchbar {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 96px;
-        gap: 8px;
-        margin-bottom: 14px;
+      .doc-view {
+        max-width: 980px;
+        margin: 0 auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--panel);
+      }
+      .doc-header {
+        padding: 18px 20px 14px;
+        border-bottom: 1px solid var(--line);
+        background: #fbfcfe;
+      }
+      .doc-header .path {
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      .doc-header h2 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+      .doc-body { padding: 20px; }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 28px;
       }
       .reader-empty {
         height: 100%;
         display: grid;
         place-items: center;
       }
-      .workspace > .pane:first-child > .searchbar,
-      .workspace > .pane:first-child > .answer:not(.assistant-answer),
-      .workspace > .pane:first-child > .result,
-      .workspace > .pane:first-child > .empty,
-      .workspace > .pane:nth-child(2) {
-        display: none;
+
+      .tool-tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
       }
-      .assistant-answer {
-        margin-bottom: 14px;
-      }
-      .legacy-search {
-        display: none;
-      }
-      .result, .answer, .doc-view, .chat-card {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-      }
-      .answer, .doc-view, .chat-card { padding: 16px; }
-      .result {
-        display: block;
-        width: 100%;
-        text-align: left;
-        padding: 14px;
-        margin-top: 10px;
-      }
-      .result h3, .doc-view h2 {
-        margin: 0 0 8px;
-        font-size: 16px;
-        letter-spacing: 0;
-      }
-      .result p, .answer p {
-        margin: 0;
-        color: var(--muted);
+      .tool-tabs button {
+        height: 36px;
         font-size: 13px;
-        line-height: 1.55;
       }
-      .result small {
-        display: block;
-        margin-top: 8px;
+      .tool-tabs button.active {
+        border-color: var(--accent);
+        background: var(--soft);
         color: var(--accent-dark);
       }
+      .tool-panel {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 12px;
+      }
+      .tool-form {
+        display: grid;
+        gap: 9px;
+      }
+      .search-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 74px;
+        gap: 8px;
+      }
+      .toolbar {
+        display: grid;
+        grid-template-columns: 96px minmax(0, 1fr);
+        gap: 8px;
+        align-items: center;
+      }
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .toggle input { width: auto; }
+      .section-title {
+        margin: 16px 0 7px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .result-item {
+        width: 100%;
+        margin-top: 8px;
+        padding: 10px;
+        text-align: left;
+      }
+      .result-item strong {
+        display: block;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+      .result-item p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .answer {
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+      .error {
+        color: var(--warn);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
       .markdown {
         overflow-wrap: anywhere;
         font-size: 14px;
@@ -287,12 +344,12 @@
         color: #334155;
       }
       .markdown code {
-        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-        font-size: 12px;
-        background: #eef2f7;
+        padding: 1px 5px;
         border: 1px solid #e2e8f0;
         border-radius: 4px;
-        padding: 1px 5px;
+        background: #eef2f7;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
       }
       .markdown pre {
         overflow: auto;
@@ -303,10 +360,10 @@
         color: #e2e8f0;
       }
       .markdown pre code {
+        padding: 0;
         border: 0;
         background: transparent;
         color: inherit;
-        padding: 0;
       }
       .markdown table {
         width: 100%;
@@ -337,59 +394,33 @@
         border-radius: 8px;
         background: #fff;
       }
-      .doc-view {
-        padding: 0;
-        overflow: hidden;
+
+      @media (max-width: 1100px) {
+        .app {
+          grid-template-columns: 280px minmax(0, 1fr);
+        }
+        .right-sidebar {
+          grid-column: 1 / -1;
+          height: 320px;
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
       }
-      .doc-header {
-        padding: 18px 18px 14px;
-        border-bottom: 1px solid var(--line);
-        background: #fbfcfe;
-      }
-      .doc-body { padding: 18px; }
-      .doc-view .path {
-        color: var(--muted);
-        font-size: 12px;
-        margin-bottom: 8px;
-        overflow-wrap: anywhere;
-      }
-      .doc-view h2 {
-        margin: 0;
-        font-size: 22px;
-        line-height: 1.25;
-      }
-      .chatbox {
-        display: grid;
-        gap: 10px;
-      }
-      .toolbar {
-        display: grid;
-        grid-template-columns: 100px minmax(0, 1fr);
-        gap: 8px;
-      }
-      .toggle {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: var(--muted);
-        font-size: 13px;
-      }
-      .empty {
-        color: var(--muted);
-        padding: 28px;
-        text-align: center;
-      }
-      .error { color: var(--warn); }
-      @media (max-width: 980px) {
-        .app { grid-template-columns: 1fr; }
-        .sidebar { min-height: auto; max-height: 45vh; border-right: 0; border-bottom: 1px solid var(--line); }
-        .workspace { grid-template-columns: 1fr; }
-        .pane + .pane { border-left: 0; border-top: 1px solid var(--line); }
-      }
-      @media (max-width: 640px) {
-        .topbar { height: auto; align-items: flex-start; padding: 12px; flex-direction: column; }
-        .searchbar { grid-template-columns: 1fr; }
-        .pane { padding: 12px; }
+      @media (max-width: 760px) {
+        .app {
+          height: auto;
+          min-height: 100vh;
+          grid-template-columns: 1fr;
+          overflow: visible;
+        }
+        .left-sidebar, .right-sidebar {
+          height: 360px;
+          min-height: 0;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+        .main { min-height: 70vh; }
+        .reader { padding: 12px; }
       }
     </style>
   </head>
@@ -399,6 +430,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script>
       const h = React.createElement;
+
       const api = (path, options) => fetch(path, options).then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || res.statusText);
@@ -444,7 +476,6 @@
         while (i < lines.length) {
           const line = lines[i];
           const trimmed = line.trim();
-
           if (!trimmed) {
             i += 1;
             continue;
@@ -531,6 +562,7 @@
           }
           html.push(`<p>${inlineMarkdown(paragraph.join(" "), baseSource)}</p>`);
         }
+
         return html.join("");
       };
 
@@ -541,14 +573,15 @@
       function App() {
         const [meta, setMeta] = React.useState(null);
         const [docs, setDocs] = React.useState([]);
-        const [filter, setFilter] = React.useState("");
-        const [selected, setSelected] = React.useState(null);
+        const [docFilter, setDocFilter] = React.useState("");
+        const [openFolders, setOpenFolders] = React.useState({});
+        const [selected, setSelected] = React.useState("");
         const [doc, setDoc] = React.useState(null);
-        const [query, setQuery] = React.useState("");
+        const [activeTool, setActiveTool] = React.useState("search");
+        const [searchQuery, setSearchQuery] = React.useState("");
         const [search, setSearch] = React.useState(null);
         const [chatQuery, setChatQuery] = React.useState("");
         const [chatAnswer, setChatAnswer] = React.useState("");
-        const [activeTool, setActiveTool] = React.useState("search");
         const [topK, setTopK] = React.useState(5);
         const [useLlm, setUseLlm] = React.useState(false);
         const [loading, setLoading] = React.useState("");
@@ -556,16 +589,27 @@
 
         React.useEffect(() => {
           api("/api/meta").then(setMeta).catch((err) => setError(err.message));
-          api("/api/docs").then((data) => setDocs(data.docs || [])).catch((err) => setError(err.message));
+          api("/api/docs").then((data) => {
+            const list = data.docs || [];
+            setDocs(list);
+            const firstFolders = {};
+            list.slice(0, 1).forEach((item) => { firstFolders[item.customer || "기타"] = true; });
+            setOpenFolders(firstFolders);
+          }).catch((err) => setError(err.message));
         }, []);
 
-        const visibleDocs = React.useMemo(() => {
-          const q = filter.trim().toLowerCase();
-          if (!q) return docs.slice(0, 180);
-          return docs.filter((item) =>
-            [item.title, item.customer, item.source].join(" ").toLowerCase().includes(q)
-          ).slice(0, 180);
-        }, [docs, filter]);
+        const groupedDocs = React.useMemo(() => {
+          const q = docFilter.trim().toLowerCase();
+          const groups = new Map();
+          docs.forEach((item) => {
+            const haystack = [item.title, item.customer, item.source].join(" ").toLowerCase();
+            if (q && !haystack.includes(q)) return;
+            const key = item.customer || "기타";
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(item);
+          });
+          return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0], "ko"));
+        }, [docs, docFilter]);
 
         const openDoc = (source) => {
           setSelected(source);
@@ -577,11 +621,14 @@
             .finally(() => setLoading(""));
         };
 
+        const toggleFolder = (folder) => {
+          setOpenFolders((prev) => ({ ...prev, [folder]: !prev[folder] }));
+        };
+
         const runSearch = (event) => {
           event && event.preventDefault();
-          const term = (filter.trim() || query.trim());
+          const term = searchQuery.trim();
           if (!term) return;
-          setQuery(term);
           setLoading("search");
           setError("");
           api("/api/search?q=" + encodeURIComponent(term) + "&top_k=" + topK)
@@ -592,9 +639,8 @@
 
         const askChat = (event) => {
           event && event.preventDefault();
-          const term = (chatQuery.trim() || filter.trim());
+          const term = chatQuery.trim();
           if (!term) return;
-          setChatQuery(term);
           setLoading("chat");
           setError("");
           api("/api/chat", {
@@ -608,143 +654,133 @@
         };
 
         return h("div", { className: "app" },
-          h("aside", { className: "sidebar" },
+          h("aside", { className: "left-sidebar" },
             h("div", { className: "brand" },
               h("h1", null, "HK Maintenance Portal"),
-              h("p", null, "RAG 검색, 유지보수 문서, 기존 챗을 한 화면에서 확인")
+              h("p", null, "자료를 폴더별로 열고 가운데에서 바로 확인")
             ),
-            h("div", { className: "nav" },
-              h("button", { className: "active", onClick: () => window.scrollTo(0, 0) }, "문서/검색")
+            h("div", { className: "stats" },
+              h("span", null, "문서 ", h("b", null, meta ? meta.docCount : "-")),
+              h("span", null, "청크 ", h("b", null, meta ? meta.chunkCount : "-"))
             ),
-            h("div", { className: "doc-filter" },
-              h("div", { className: "tool-tabs" },
-                h("button", { type: "button", className: activeTool === "search" ? "active" : "", onClick: () => setActiveTool("search") }, "검색"),
-                h("button", { type: "button", className: activeTool === "question" ? "active" : "", onClick: () => setActiveTool("question") }, "질문")
-              ),
-              activeTool === "search" ? h("form", { className: "side-search", onSubmit: runSearch },
-                h("input", {
-                  value: filter,
-                  onChange: (event) => setFilter(event.target.value),
-                  placeholder: "고객사, 문서명, 작업 내용 검색"
-                }),
-                h("button", { className: "primary", type: "submit" }, loading === "search" ? "검색중" : "검색")
-              ) : h("form", { className: "side-question", onSubmit: askChat },
-                h("textarea", {
-                  rows: 4,
-                  value: chatQuery,
-                  onChange: (event) => setChatQuery(event.target.value),
-                  placeholder: "문서 기반으로 질문하기"
-                }),
-                h("div", { className: "toolbar" },
-                  h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
-                    [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "근거 " + n))
-                  ),
-                  h("label", { className: "toggle" },
-                    h("input", { type: "checkbox", checked: useLlm, onChange: (event) => setUseLlm(event.target.checked) }),
-                    "LLM 답변"
-                  )
-                ),
-                h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변중" : "질문하기")
-              )
-            ),
-            h("form", { className: "doc-filter side-search legacy-search", onSubmit: runSearch },
+            h("div", { className: "list-filter" },
               h("input", {
-                value: filter,
-                onChange: (event) => setFilter(event.target.value),
-                placeholder: "고객사, 문서명, 경로 검색"
-              }),
-              h("button", { className: "primary", type: "submit" }, "검색")
+                value: docFilter,
+                onChange: (event) => setDocFilter(event.target.value),
+                placeholder: "자료 목록 필터"
+              })
             ),
-            h("div", { className: "doc-list" },
-              search && [
-                h("div", { key: "result-title", className: "section-title" }, "검색 결과"),
-                search.results.map((item) => h("button", {
-                  key: "result-" + item.source + item.title,
-                  className: "doc-item",
-                  onClick: () => openDoc(item.source)
-                }, h("strong", null, item.title), h("span", null, item.source + " / score " + item.score))),
-                h("div", { key: "doc-title", className: "section-title" }, "문서 목록")
-              ],
-              visibleDocs.map((item) => h("button", {
-                key: item.source,
-                className: "doc-item " + (selected === item.source ? "selected" : ""),
-                onClick: () => openDoc(item.source)
-              }, h("strong", null, item.title), h("span", null, item.source))),
-              visibleDocs.length === 0 && h("div", { className: "empty" }, "문서가 없습니다.")
+            h("div", { className: "folder-list" },
+              groupedDocs.map(([folder, items]) => {
+                const isOpen = !!openFolders[folder] || !!docFilter.trim();
+                return h("div", { key: folder, className: "folder" },
+                  h("button", {
+                    className: "folder-toggle " + (isOpen ? "open" : ""),
+                    onClick: () => toggleFolder(folder)
+                  },
+                    h("span", null, isOpen ? "▾" : "▸"),
+                    h("strong", null, folder),
+                    h("span", null, items.length)
+                  ),
+                  isOpen && h("div", { className: "doc-group" },
+                    items.map((item) => h("button", {
+                      key: item.source,
+                      className: "doc-item " + (selected === item.source ? "selected" : ""),
+                      onClick: () => openDoc(item.source)
+                    }, h("strong", null, item.title), h("span", null, item.source)))
+                  )
+                );
+              }),
+              groupedDocs.length === 0 && h("div", { className: "empty" }, "자료가 없습니다.")
             )
           ),
+
           h("main", { className: "main" },
             h("header", { className: "topbar" },
-              h("div", { className: "stats" },
-                h("span", null, "문서 ", h("b", null, meta ? meta.docCount : "-")),
-                h("span", null, "검색 청크 ", h("b", null, meta ? meta.chunkCount : "-")),
-                h("span", null, "LLM ", h("b", null, meta ? meta.llm : "-"))
-              ),
-              null
+              h("strong", null, doc ? doc.title : "자료를 선택하세요"),
+              h("span", null, doc ? doc.source : "왼쪽 자료 목록 또는 오른쪽 검색을 사용하세요")
             ),
-            h("section", { className: "content" },
-              h("div", { className: "workspace" },
-                h("div", { className: "pane" },
-                  chatAnswer && h("div", { className: "answer assistant-answer" }, h(Markdown, { text: chatAnswer })),
-                  doc ? h("div", { className: "doc-view" }, [
-                    h("div", { key: "head", className: "doc-header" },
-                      h("div", { className: "path" }, doc.source),
-                      h("h2", null, doc.title)
-                    ),
-                    h("div", { key: "content", className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source }))
-                  ]) : h("div", { className: "reader-empty" },
-                    h("div", { className: "empty" }, search ? "왼쪽 검색 결과에서 자료를 선택하세요." : "왼쪽에서 자료를 검색하거나 문서를 선택하세요.")
-                  ),
-                  h("form", { className: "searchbar", onSubmit: runSearch },
-                    h("input", {
-                      value: query,
-                      onChange: (event) => setQuery(event.target.value),
-                      placeholder: "예: 대한항공 방문자 수 확인, 파크랜드 룩북, 보고서 발송"
-                    }),
-                    h("button", { className: "primary", type: "submit" }, loading === "search" ? "검색 중" : "검색")
-                  ),
-                  error && h("p", { className: "error" }, error),
-                  search && h("div", { className: "answer" }, h(Markdown, { text: search.answer })),
-                  search && search.results.map((item) => h("button", {
-                    key: item.source + item.title,
-                    className: "result",
-                    onClick: () => openDoc(item.source)
-                  }, h("h3", null, item.title), h("p", null, item.snippet), h("small", null, item.source + " / score " + item.score))),
-                  !search && h("div", { className: "empty" }, "질문을 입력하면 관련 문서와 근거가 바로 표시됩니다.")
+            h("section", { className: "reader" },
+              error && h("p", { className: "error" }, error),
+              chatAnswer && h("div", { className: "answer" }, h(Markdown, { text: chatAnswer })),
+              doc ? h("article", { className: "doc-view" },
+                h("div", { className: "doc-header" },
+                  h("div", { className: "path" }, doc.source),
+                  h("h2", null, doc.title)
                 ),
-                h("div", { className: "pane" },
-                  h("div", { className: "chat-card" },
-                    h("form", { className: "chatbox", onSubmit: askChat },
-                      h("textarea", {
-                        rows: 4,
-                        value: chatQuery,
-                        onChange: (event) => setChatQuery(event.target.value),
-                        placeholder: "문서 기반으로 바로 물어보기"
-                      }),
-                      h("div", { className: "toolbar" },
-                        h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
-                          [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "근거 " + n))
-                        ),
-                        h("label", { className: "toggle" },
-                          h("input", { type: "checkbox", checked: useLlm, onChange: (event) => setUseLlm(event.target.checked) }),
-                          "LLM 답변 생성"
-                        )
-                      ),
-                      h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변 중" : "질문하기")
-                    ),
-                    chatAnswer && h("div", { style: { marginTop: 14 } }, h(Markdown, { text: chatAnswer }))
-                  ),
-                  h("div", { className: "doc-view", style: { marginTop: 14 } },
-                    doc ? [
-                      h("div", { key: "head", className: "doc-header" },
-                        h("div", { className: "path" }, doc.source),
-                        h("h2", null, doc.title)
-                      ),
-                      h("div", { key: "content", className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source }))
-                    ] : h("div", { className: "empty" }, loading === "doc" ? "문서 여는 중" : "왼쪽에서 문서를 선택하세요.")
-                  )
-                )
+                h("div", { className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source }))
+              ) : h("div", { className: "reader-empty" },
+                h("div", { className: "empty" }, loading === "doc" ? "자료를 여는 중입니다." : "왼쪽에서 자료를 선택하거나 오른쪽에서 검색하세요.")
               )
+            )
+          ),
+
+          h("aside", { className: "right-sidebar" },
+            h("div", { className: "tool-head" },
+              h("h2", null, "검색 / 질문"),
+              h("p", null, "검색 결과에서 자료를 열거나 문서 기반 답변을 확인")
+            ),
+            h("div", { className: "tool-tabs" },
+              h("button", {
+                type: "button",
+                className: activeTool === "search" ? "active" : "",
+                onClick: () => setActiveTool("search")
+              }, "검색"),
+              h("button", {
+                type: "button",
+                className: activeTool === "question" ? "active" : "",
+                onClick: () => setActiveTool("question")
+              }, "질문")
+            ),
+            h("div", { className: "tool-panel" },
+              activeTool === "search" ? [
+                h("form", { key: "search-form", className: "tool-form", onSubmit: runSearch },
+                  h("div", { className: "search-row" },
+                    h("input", {
+                      value: searchQuery,
+                      onChange: (event) => setSearchQuery(event.target.value),
+                      placeholder: "예: 대한항공 방문자 수 확인"
+                    }),
+                    h("button", { className: "primary", type: "submit" }, loading === "search" ? "중" : "검색")
+                  ),
+                  h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
+                    [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "근거 " + n))
+                  )
+                ),
+                search && h("div", { key: "search-answer", className: "answer" }, h(Markdown, { text: search.answer })),
+                search && h("div", { key: "search-results" },
+                  h("div", { className: "section-title" }, "검색 결과"),
+                  search.results.map((item) => h("button", {
+                    key: item.source + item.title,
+                    className: "result-item",
+                    onClick: () => openDoc(item.source)
+                  },
+                    h("strong", null, item.title),
+                    h("p", null, item.source + " / score " + item.score),
+                    h("p", null, item.snippet)
+                  ))
+                )
+              ] : [
+                h("form", { key: "question-form", className: "tool-form", onSubmit: askChat },
+                  h("textarea", {
+                    rows: 5,
+                    value: chatQuery,
+                    onChange: (event) => setChatQuery(event.target.value),
+                    placeholder: "문서 기반으로 질문하기"
+                  }),
+                  h("div", { className: "toolbar" },
+                    h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
+                      [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "근거 " + n))
+                    ),
+                    h("label", { className: "toggle" },
+                      h("input", { type: "checkbox", checked: useLlm, onChange: (event) => setUseLlm(event.target.checked) }),
+                      "LLM 답변"
+                    )
+                  ),
+                  h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변 중" : "질문하기")
+                ),
+                chatAnswer && h("div", { key: "question-answer", className: "answer" }, h(Markdown, { text: chatAnswer }))
+              ]
             )
           )
         );
