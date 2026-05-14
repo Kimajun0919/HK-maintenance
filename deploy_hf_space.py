@@ -9,6 +9,20 @@ ROOT = Path(__file__).resolve().parent
 SPACE_DIR = ROOT / "hf_space_bundle"
 
 
+def load_env_file(path: Path = ROOT / ".env") -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 def copytree(src: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
@@ -66,6 +80,7 @@ def deploy_bundle() -> None:
 
 
 def main() -> None:
+    load_env_file()
     prepare_bundle()
     print(f"prepared={SPACE_DIR}")
     if os.getenv("HF_DEPLOY", "0") == "1":

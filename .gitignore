@@ -3,3 +3,4 @@ rag_chatbot/.venv/
 __pycache__/
 *.pyc
 *.log
+.env
