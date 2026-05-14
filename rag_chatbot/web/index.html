@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HK Maintenance Portal</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --line: #d8dde6;
+        --text: #17202a;
+        --muted: #657184;
+        --accent: #0f766e;
+        --accent-dark: #115e59;
+        --warn: #9a3412;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+        background: var(--bg);
+      }
+      button, input, select, textarea { font: inherit; }
+      button {
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--text);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fff;
+      }
+      button.primary:hover { background: var(--accent-dark); }
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 310px minmax(0, 1fr);
+      }
+      .sidebar {
+        border-right: 1px solid var(--line);
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      .brand {
+        padding: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.2;
+        letter-spacing: 0;
+      }
+      .brand p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .nav {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .nav button {
+        height: 36px;
+        font-size: 13px;
+      }
+      .nav button.active {
+        border-color: var(--accent);
+        color: var(--accent-dark);
+        background: #ecfdf5;
+      }
+      .doc-filter { padding: 12px; border-bottom: 1px solid var(--line); }
+      .doc-filter input, .searchbar input, .chatbox textarea, .toolbar select {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 10px 11px;
+        background: #fff;
+        color: var(--text);
+      }
+      .doc-list {
+        overflow: auto;
+        padding: 8px;
+        min-height: 0;
+      }
+      .doc-item {
+        width: 100%;
+        text-align: left;
+        display: block;
+        padding: 10px;
+        border: 1px solid transparent;
+        background: transparent;
+      }
+      .doc-item:hover, .doc-item.selected {
+        border-color: var(--line);
+        background: #f8fafc;
+      }
+      .doc-item strong {
+        display: block;
+        font-size: 13px;
+        line-height: 1.35;
+        word-break: keep-all;
+      }
+      .doc-item span {
+        display: block;
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      .main {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .topbar {
+        height: 58px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 18px;
+        gap: 12px;
+      }
+      .stats {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .stats b { color: var(--text); }
+      .topbar a {
+        color: var(--accent-dark);
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .content {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .workspace {
+        height: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 420px;
+        gap: 0;
+      }
+      .pane {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        padding: 18px;
+      }
+      .pane + .pane { border-left: 1px solid var(--line); background: #fff; }
+      .searchbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 96px;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .result, .answer, .doc-view, .chat-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      .answer, .doc-view, .chat-card { padding: 16px; }
+      .result {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 14px;
+        margin-top: 10px;
+      }
+      .result h3, .doc-view h2 {
+        margin: 0 0 8px;
+        font-size: 16px;
+        letter-spacing: 0;
+      }
+      .result p, .answer p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      .result small {
+        display: block;
+        margin-top: 8px;
+        color: var(--accent-dark);
+      }
+      .markdown {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 14px;
+        line-height: 1.65;
+      }
+      .doc-view .path {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 14px;
+        overflow-wrap: anywhere;
+      }
+      .chatbox {
+        display: grid;
+        gap: 10px;
+      }
+      .toolbar {
+        display: grid;
+        grid-template-columns: 100px minmax(0, 1fr);
+        gap: 8px;
+      }
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .empty {
+        color: var(--muted);
+        padding: 28px;
+        text-align: center;
+      }
+      .error { color: var(--warn); }
+      @media (max-width: 980px) {
+        .app { grid-template-columns: 1fr; }
+        .sidebar { min-height: auto; max-height: 45vh; border-right: 0; border-bottom: 1px solid var(--line); }
+        .workspace { grid-template-columns: 1fr; }
+        .pane + .pane { border-left: 0; border-top: 1px solid var(--line); }
+      }
+      @media (max-width: 640px) {
+        .topbar { height: auto; align-items: flex-start; padding: 12px; flex-direction: column; }
+        .searchbar { grid-template-columns: 1fr; }
+        .pane { padding: 12px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script>
+      const h = React.createElement;
+      const api = (path, options) => fetch(path, options).then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        return data;
+      });
+
+      function App() {
+        const [meta, setMeta] = React.useState(null);
+        const [docs, setDocs] = React.useState([]);
+        const [filter, setFilter] = React.useState("");
+        const [selected, setSelected] = React.useState(null);
+        const [doc, setDoc] = React.useState(null);
+        const [query, setQuery] = React.useState("");
+        const [search, setSearch] = React.useState(null);
+        const [chatQuery, setChatQuery] = React.useState("");
+        const [chatAnswer, setChatAnswer] = React.useState("");
+        const [topK, setTopK] = React.useState(5);
+        const [useLlm, setUseLlm] = React.useState(false);
+        const [loading, setLoading] = React.useState("");
+        const [error, setError] = React.useState("");
+
+        React.useEffect(() => {
+          api("/api/meta").then(setMeta).catch((err) => setError(err.message));
+          api("/api/docs").then((data) => setDocs(data.docs || [])).catch((err) => setError(err.message));
+        }, []);
+
+        const visibleDocs = React.useMemo(() => {
+          const q = filter.trim().toLowerCase();
+          if (!q) return docs.slice(0, 250);
+          return docs.filter((item) =>
+            [item.title, item.customer, item.source].join(" ").toLowerCase().includes(q)
+          ).slice(0, 250);
+        }, [docs, filter]);
+
+        const openDoc = (source) => {
+          setSelected(source);
+          setLoading("doc");
+          setError("");
+          api("/api/doc?source=" + encodeURIComponent(source))
+            .then(setDoc)
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const runSearch = (event) => {
+          event && event.preventDefault();
+          if (!query.trim()) return;
+          setLoading("search");
+          setError("");
+          api("/api/search?q=" + encodeURIComponent(query.trim()) + "&top_k=" + topK)
+            .then(setSearch)
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const askChat = (event) => {
+          event && event.preventDefault();
+          if (!chatQuery.trim()) return;
+          setLoading("chat");
+          setError("");
+          api("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: chatQuery.trim(), topK, useLlm }),
+          })
+            .then((data) => setChatAnswer(data.answer || ""))
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        return h("div", { className: "app" },
+          h("aside", { className: "sidebar" },
+            h("div", { className: "brand" },
+              h("h1", null, "HK Maintenance Portal"),
+              h("p", null, "RAG 검색, 유지보수 문서, 기존 챗을 한 화면에서 확인")
+            ),
+            h("div", { className: "nav" },
+              h("button", { className: "active", onClick: () => window.scrollTo(0, 0) }, "문서/검색"),
+              h("button", { onClick: () => location.href = "/chat/" }, "기존 챗")
+            ),
+            h("div", { className: "doc-filter" },
+              h("input", {
+                value: filter,
+                onChange: (event) => setFilter(event.target.value),
+                placeholder: "고객사, 문서명, 경로 검색"
+              })
+            ),
+            h("div", { className: "doc-list" },
+              visibleDocs.map((item) => h("button", {
+                key: item.source,
+                className: "doc-item " + (selected === item.source ? "selected" : ""),
+                onClick: () => openDoc(item.source)
+              }, h("strong", null, item.title), h("span", null, item.source))),
+              visibleDocs.length === 0 && h("div", { className: "empty" }, "문서가 없습니다.")
+            )
+          ),
+          h("main", { className: "main" },
+            h("header", { className: "topbar" },
+              h("div", { className: "stats" },
+                h("span", null, "문서 ", h("b", null, meta ? meta.docCount : "-")),
+                h("span", null, "검색 청크 ", h("b", null, meta ? meta.chunkCount : "-")),
+                h("span", null, "LLM ", h("b", null, meta ? meta.llm : "-"))
+              ),
+              h("a", { href: "/chat/" }, "Gradio 챗 열기")
+            ),
+            h("section", { className: "content" },
+              h("div", { className: "workspace" },
+                h("div", { className: "pane" },
+                  h("form", { className: "searchbar", onSubmit: runSearch },
+                    h("input", {
+                      value: query,
+                      onChange: (event) => setQuery(event.target.value),
+                      placeholder: "예: 대한항공 방문자 수 확인, 파크랜드 룩북, 보고서 발송"
+                    }),
+                    h("button", { className: "primary", type: "submit" }, loading === "search" ? "검색 중" : "검색")
+                  ),
+                  error && h("p", { className: "error" }, error),
+                  search && h("div", { className: "answer markdown" }, search.answer),
+                  search && search.results.map((item) => h("button", {
+                    key: item.source + item.title,
+                    className: "result",
+                    onClick: () => openDoc(item.source)
+                  }, h("h3", null, item.title), h("p", null, item.snippet), h("small", null, item.source + " / score " + item.score))),
+                  !search && h("div", { className: "empty" }, "질문을 입력하면 관련 문서와 근거가 바로 표시됩니다.")
+                ),
+                h("div", { className: "pane" },
+                  h("div", { className: "chat-card" },
+                    h("form", { className: "chatbox", onSubmit: askChat },
+                      h("textarea", {
+                        rows: 4,
+                        value: chatQuery,
+                        onChange: (event) => setChatQuery(event.target.value),
+                        placeholder: "문서 기반으로 바로 물어보기"
+                      }),
+                      h("div", { className: "toolbar" },
+                        h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
+                          [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "근거 " + n))
+                        ),
+                        h("label", { className: "toggle" },
+                          h("input", { type: "checkbox", checked: useLlm, onChange: (event) => setUseLlm(event.target.checked) }),
+                          "LLM 답변 생성"
+                        )
+                      ),
+                      h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변 중" : "질문하기")
+                    ),
+                    chatAnswer && h("div", { className: "markdown", style: { marginTop: 14 } }, chatAnswer)
+                  ),
+                  h("div", { className: "doc-view", style: { marginTop: 14 } },
+                    doc ? [
+                      h("h2", { key: "title" }, doc.title),
+                      h("div", { key: "path", className: "path" }, doc.source),
+                      h("div", { key: "content", className: "markdown" }, doc.content)
+                    ] : h("div", { className: "empty" }, loading === "doc" ? "문서 여는 중" : "왼쪽에서 문서를 선택하세요.")
+                  )
+                )
+              )
+            )
+          )
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+    </script>
+  </body>
+</html>

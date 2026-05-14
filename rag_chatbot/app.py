@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import math
+import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -560,8 +561,125 @@ except ModuleNotFoundError as exc:
         raise
     demo = None
 
+WEB_DIR = APP_DIR / "web"
+
+
+def _json_response(data, status_code: int = 200):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(data, status_code=status_code)
+
+
+def _safe_doc_path(source: str) -> Path | None:
+    try:
+        path = (DOCS_DIR / source).resolve()
+        path.relative_to(DOCS_DIR)
+    except (ValueError, RuntimeError):
+        return None
+    if not path.exists() or path.suffix.lower() != ".md":
+        return None
+    return path
+
+
+def docs_index() -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    if not DOCS_DIR.exists():
+        return items
+    for path in sorted(DOCS_DIR.rglob("*.md")):
+        rel = path.relative_to(DOCS_DIR).as_posix()
+        if path.name in {"SIMPLIFY_CHANGELOG.md", "SIMPLIFY_VALIDATION_REPORT.md"}:
+            continue
+        parts = path.relative_to(DOCS_DIR).parts
+        items.append({"source": rel, "title": path.stem, "customer": parts[0] if parts else ""})
+    return items
+
+
+def create_api_app():
+    from fastapi import FastAPI, Query, Request
+    from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, PlainTextResponse
+    import gradio as gr
+
+    api_app = FastAPI(title="HK Maintenance Portal")
+
+    @api_app.get("/", response_class=HTMLResponse)
+    def home():
+        index = WEB_DIR / "index.html"
+        if index.exists():
+            return FileResponse(index)
+        return HTMLResponse("<h1>HK Maintenance Portal</h1><p>web/index.html is missing.</p>")
+
+    @api_app.get("/healthz")
+    def healthz():
+        return {"ok": True, "docs_dir": str(DOCS_DIR), "chunks": len(chunks), "llm": MODEL_NAME if USE_LLM else "disabled"}
+
+    @api_app.get("/api/meta")
+    def api_meta():
+        return {"docsDir": str(DOCS_DIR), "chunkCount": len(chunks), "docCount": len(docs_index()), "llm": MODEL_NAME if USE_LLM else "disabled"}
+
+    @api_app.get("/api/docs")
+    def api_docs():
+        return {"docs": docs_index()}
+
+    @api_app.get("/api/doc")
+    def api_doc(source: str = Query(...)):
+        path = _safe_doc_path(source)
+        if path is None:
+            return _json_response({"error": "document not found"}, status_code=404)
+        return {"source": source, "title": path.stem, "content": path.read_text(encoding="utf-8", errors="replace")}
+
+    @api_app.get("/api/search")
+    def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10)):
+        results, _context = retrieve(q, top_k)
+        return {
+            "query": q,
+            "answer": source_based_answer(q, results),
+            "results": [
+                {
+                    "source": chunk.source,
+                    "title": chunk.title,
+                    "score": round(score, 4),
+                    "snippet": re.sub(r"\s+", " ", chunk.text).strip()[:700],
+                }
+                for chunk, score in results
+            ],
+        }
+
+    @api_app.post("/api/chat")
+    async def api_chat(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        query = str(payload.get("query", "")).strip()
+        top_k = max(1, min(int(payload.get("topK", 5)), 10))
+        use_llm = bool(payload.get("useLlm", False))
+        if not query:
+            return _json_response({"error": "query is required"}, status_code=400)
+        response = llm_answer(query, top_k) if use_llm and USE_LLM else immediate_answer(query, top_k)
+        return {"query": query, "answer": response}
+
+    @api_app.get("/chat")
+    def chat_redirect():
+        return RedirectResponse("/chat/")
+
+    @api_app.get("/robots.txt")
+    def robots_txt():
+        return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
+    if demo is not None:
+        api_app = gr.mount_gradio_app(api_app, demo, path="/chat")
+    return api_app
+
+
+app = create_api_app() if demo is not None else None
+
 
 if __name__ == "__main__":
     if demo is None:
         raise SystemExit("gradio가 설치되어 있지 않습니다. `pip install -r requirements.txt`를 실행하세요.")
-    demo.launch(ssr_mode=False)
+    if app is None:
+        demo.launch(ssr_mode=False)
+    else:
+        import uvicorn
+
+        uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("APP_PORT", "7860")))

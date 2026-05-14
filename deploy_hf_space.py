@@ -41,6 +41,7 @@ def prepare_bundle() -> None:
 
     shutil.copy2(ROOT / "rag_chatbot" / "app.py", SPACE_DIR / "app.py")
     shutil.copy2(ROOT / "rag_chatbot" / "README.md", SPACE_DIR / "README.md")
+    copytree(ROOT / "rag_chatbot" / "web", SPACE_DIR / "web")
     copytree(ROOT / "organized_maintenance_docs_simple", SPACE_DIR / "organized_maintenance_docs_simple")
 
     base_requirements = (ROOT / "rag_chatbot" / "requirements.txt").read_text(encoding="utf-8").splitlines()
