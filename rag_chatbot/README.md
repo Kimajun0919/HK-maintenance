@@ -13,10 +13,29 @@
 
 ## 로컬 실행
 
+가장 가벼운 테스트는 LLM 없이 검색 RAG만 실행하는 방식입니다. 문서 검색과 Gradio UI를 먼저 확인할 때 사용합니다.
+
 ```powershell
 cd rag_chatbot
-pip install -r requirements.txt
-python app.py
+.\start_local.ps1
+```
+
+실행 후 브라우저에서 아래 주소를 엽니다.
+
+```text
+http://127.0.0.1:7860
+```
+
+검색 파이프라인만 빠르게 확인하려면 아래 명령을 실행합니다.
+
+```powershell
+.\smoke_test.ps1
+```
+
+로컬 LLM까지 설치해서 실행하려면 아래 명령을 사용합니다. Torch와 모델 파일을 내려받기 때문에 시간이 오래 걸릴 수 있습니다.
+
+```powershell
+.\start_local_llm.ps1
 ```
 
 ## Hugging Face Spaces 배포
@@ -34,6 +53,12 @@ python app.py
 | `LOCAL_LLM_MODEL` | `Qwen/Qwen2.5-0.5B-Instruct` | 사용할 로컬 LLM |
 | `USE_LLM` | `1` | `0`이면 LLM 없이 근거 기반 검색 답변만 사용 |
 | `MAX_NEW_TOKENS` | `320` | 생성 답변 최대 토큰 |
+
+## 로컬 테스트 완료 상태
+
+- 검색 스모크 테스트: 통과
+- 로컬 Gradio UI: `http://127.0.0.1:7860` 응답 확인
+- 기본 실행 모드: `USE_LLM=0`
 
 ## 주의사항
 

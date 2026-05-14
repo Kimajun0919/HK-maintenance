@@ -267,17 +267,14 @@ def build_demo():
         )
         if llm.error:
             gr.Markdown(f"LLM 상태: `{llm.error[:500]}`")
-        chatbot = gr.Chatbot(type="messages", height=520)
+        chatbot = gr.Chatbot(height=520)
         query = gr.Textbox(label="질문", placeholder="예: 대한항공 VPN 접속 방법 알려줘")
         top_k = gr.Slider(label="검색 근거 수", minimum=2, maximum=8, value=5, step=1)
         gr.ClearButton([query, chatbot])
 
-        def respond(message: str, chat_history: list[dict], k: int):
+        def respond(message: str, chat_history: list[tuple[str, str]], k: int):
             bot_message = answer(message, int(k), chat_history)
-            chat_history = chat_history + [
-                {"role": "user", "content": message},
-                {"role": "assistant", "content": bot_message},
-            ]
+            chat_history = chat_history + [(message, bot_message)]
             return "", chat_history
 
         query.submit(respond, [query, chatbot, top_k], [query, chatbot])

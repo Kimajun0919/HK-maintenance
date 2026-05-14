@@ -112,13 +112,19 @@ python integrate_hk_customer_info.py
 
 ```powershell
 cd rag_chatbot
-pip install -r requirements.txt
-python app.py
+.\start_local.ps1
 ```
 
 LLM 없이 검색 파이프라인만 확인:
 
 ```powershell
-$env:USE_LLM='0'
-python app.py
+cd rag_chatbot
+.\smoke_test.ps1
+```
+
+로컬 LLM까지 설치해서 실행:
+
+```powershell
+cd rag_chatbot
+.\start_local_llm.ps1
 ```
