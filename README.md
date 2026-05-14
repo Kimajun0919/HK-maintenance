@@ -105,7 +105,7 @@ python integrate_hk_customer_info.py
 `rag_chatbot/`에는 `organized_maintenance_docs_simple`을 대상으로 동작하는 경량 RAG 챗봇이 있습니다.
 
 - 권장 배포: Hugging Face Spaces Gradio
-- 기본 LLM: `Qwen/Qwen2.5-0.5B-Instruct`
+- 기본 LLM: `HuggingFaceTB/SmolLM2-135M-Instruct`
 - 검색 방식: 순수 Python 문자 n-gram 검색
 - 응답 방식: 검색 근거를 먼저 즉시 표시하고, LLM 답변이 준비되면 같은 답변 영역에 추가 표시
 - LLM 로딩 실패 시: 검색 근거 기반 답변만 유지
