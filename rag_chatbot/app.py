@@ -18,6 +18,27 @@ USE_LLM = os.getenv("USE_LLM", "1") != "0"
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "180"))
 
 
+QUERY_ALIASES = {
+    "시도지사": "시도지사협의회 대한시도지사협회",
+    "대한시도지사": "시도지사협의회 대한시도지사협회",
+    "차세대": "KIAPS_차세대 KIAPS",
+    "대한항공": "대한항공씨앤디서비스 KCND",
+    "안과": "안과의사회 대한안과의사회 KIOS",
+    "고혈압": "고혈압학회 대한고혈압학회",
+    "순환자원": "한국순환자원 한국순환자원유통지원센터 KORA",
+    "성의교정": "성의교정_공동연구지원센터 성의교정_카톨릭대학교",
+}
+
+INTENT_EXPANSIONS = {
+    "접속정보": "접속 정보 계정 로그인 관리자 URL VPN FTP 서버 클라우드 id pw password host 경로",
+    "접속 정보": "접속 정보 계정 로그인 관리자 URL VPN FTP 서버 클라우드 id pw password host 경로",
+    "계정": "계정 로그인 id pw password 관리자",
+    "서버": "서버 host 경로 FTP VPN",
+    "경로": "경로 디렉토리 폴더 서버 파일",
+    "보고서": "보고서 월간 내역서 점검대장 발송",
+}
+
+
 @dataclass
 class Chunk:
     text: str
@@ -53,6 +74,7 @@ def split_markdown(path: Path, text: str, max_chars: int = 1800, overlap: int = 
                 "작업 절차",
                 "주의사항",
                 "오류 및 대응 방법",
+                "확인 필요 사항",
                 "원본 보존 내용",
                 "기존 정리본 문서",
                 "공통 작업 가능 여부",
@@ -105,6 +127,18 @@ class Retriever:
         grams.extend(tokens)
         return grams
 
+    @staticmethod
+    def _expand_query(query: str) -> str:
+        expanded = [query]
+        compact_query = query.replace(" ", "")
+        for key, value in QUERY_ALIASES.items():
+            if key.replace(" ", "") in compact_query:
+                expanded.append(value)
+        for key, value in INTENT_EXPANSIONS.items():
+            if key.replace(" ", "") in compact_query:
+                expanded.append(value)
+        return " ".join(expanded)
+
     @classmethod
     def _vector(cls, text: str) -> Counter[str]:
         return Counter(cls._ngrams(text))
@@ -125,18 +159,32 @@ class Retriever:
     def search(self, query: str, top_k: int = 5) -> list[tuple[Chunk, float]]:
         if not self.chunks:
             return []
-        qv = self._vector(query)
+        expanded_query = self._expand_query(query)
+        qv = self._vector(expanded_query)
         qn = self._norm(qv)
-        query_terms = set(re.findall(r"[가-힣A-Za-z0-9_]{2,}", query.lower()))
+        query_terms = set(re.findall(r"[가-힣A-Za-z0-9_]{2,}", expanded_query.lower()))
+        compact_query = expanded_query.lower().replace(" ", "")
+        wants_report = any(term in compact_query for term in ("보고서", "월간", "내역서", "점검대장"))
+        wants_access = any(term in compact_query for term in ("접속정보", "접속", "계정", "로그인", "서버", "경로"))
         scored = []
         for idx, (vector, norm) in enumerate(zip(self.vectors, self.norms)):
             score = self._cosine(qv, qn, vector, norm)
             chunk = self.chunks[idx]
             source_title = f"{chunk.source} {chunk.title}".lower()
             folder = chunk.source.split("/", 1)[0].lower()
-            folder_boost = 0.45 if folder and folder in query.lower() else 0.0
+            folder_boost = 0.55 if folder and folder in compact_query else 0.0
             exact_boost = sum(0.04 for term in query_terms if term in source_title)
             exact_boost += folder_boost
+            if folder == "공통자료" and not wants_report:
+                exact_boost -= 0.35
+            if wants_access:
+                access_text = f"{chunk.title}\n{chunk.text}".lower()
+                access_hits = sum(
+                    1
+                    for term in ("접속", "계정", "로그인", "관리자", "vpn", "ftp", "id", "pw", "password", "host", "클라우드", "경로")
+                    if term in access_text
+                )
+                exact_boost += min(access_hits * 0.035, 0.28)
             scored.append((idx, score + exact_boost))
         scored.sort(key=lambda item: item[1], reverse=True)
         return [(self.chunks[idx], score) for idx, score in scored[:top_k] if score > 0]
@@ -242,6 +290,8 @@ def source_based_answer(query: str, results: list[tuple[Chunk, float]]) -> str:
     for chunk, score in results:
         if chunk.source != best_source:
             continue
+        if is_noise_title_for_answer(query, chunk.title):
+            continue
         if chunk.title in seen_titles:
             continue
         seen_titles.add(chunk.title)
@@ -251,7 +301,9 @@ def source_based_answer(query: str, results: list[tuple[Chunk, float]]) -> str:
         seen_chunk_text.add(key)
         primary.append((chunk, score))
     if not primary:
-        primary = results[:2]
+        primary = [(chunk, score) for chunk, score in results[:2] if not is_noise_title_for_answer(query, chunk.title)]
+    if not primary:
+        primary = results[:1]
 
     lines = [
         "## 검색 기반 답변",
@@ -269,12 +321,37 @@ def source_based_answer(query: str, results: list[tuple[Chunk, float]]) -> str:
     lines.extend(["", "### 참고 문서"])
     seen: set[str] = set()
     for chunk, score in results:
+        if is_noise_title_for_answer(query, chunk.title):
+            continue
         key = f"{chunk.source}|{chunk.title}"
         if key in seen:
             continue
         seen.add(key)
         lines.append(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}")
     return "\n".join(lines)
+
+
+def is_noise_title_for_answer(query: str, title: str) -> bool:
+    compact_query = query.replace(" ", "")
+    title_compact = title.replace(" ", "")
+    noise_titles = (
+        "문서개요",
+        "핵심요약",
+        "상세내용",
+        "작업절차",
+        "주의사항",
+        "오류및대응방법",
+        "관련이미지",
+        "원본보존내용",
+        "확인필요사항",
+        "기존정리본문서",
+        "HK매뉴얼에서확인된고객사별정보",
+    )
+    if any(noise in title_compact for noise in noise_titles):
+        return True
+    if "보고서" in title_compact and not any(term in compact_query for term in ("보고서", "월간", "내역", "점검")):
+        return True
+    return False
 
 
 def extract_readable_bullets(text: str) -> list[str]:
@@ -410,6 +487,12 @@ def build_demo():
         chat_format = "messages" if "Messages" in data_model_name else "tuples"
         query = gr.Textbox(label="질문", placeholder="예: 대한항공 VPN 접속 방법 알려줘")
         top_k = gr.Slider(label="검색 근거 수", minimum=2, maximum=8, value=5, step=1)
+        generate_llm = gr.Checkbox(
+            label="LLM 답변도 생성",
+            value=False,
+            interactive=USE_LLM,
+            info="무료 CPU에서는 느리고 품질이 낮을 수 있습니다. 기본 답변은 검색 근거 기반입니다.",
+        )
         gr.ClearButton([query, chatbot])
 
         def normalize_history(chat_history: list | None) -> list:
@@ -437,7 +520,7 @@ def build_demo():
                         normalized.append(("", str(item.get("content", ""))))
             return normalized
 
-        def respond(message: str, chat_history: list, k: int):
+        def respond(message: str, chat_history: list, k: int, use_llm_for_question: bool):
             chat_history = normalize_history(chat_history)
             bot_message = immediate_answer(message, int(k))
             if chat_format == "messages":
@@ -449,7 +532,7 @@ def build_demo():
                 chat_history = chat_history + [(message, bot_message)]
             yield "", chat_history
 
-            if not USE_LLM:
+            if not USE_LLM or not use_llm_for_question:
                 return
 
             llm_message = llm_answer(message, int(k))
@@ -466,7 +549,7 @@ def build_demo():
                 chat_history[-1] = (message, combined)
             yield "", chat_history
 
-        query.submit(respond, [query, chatbot, top_k], [query, chatbot])
+        query.submit(respond, [query, chatbot, top_k, generate_llm], [query, chatbot])
     return demo
 
 
