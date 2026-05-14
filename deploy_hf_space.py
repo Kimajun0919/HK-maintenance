@@ -26,7 +26,11 @@ def load_env_file(path: Path = ROOT / ".env") -> None:
 def copytree(src: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
-    ignore = shutil.ignore_patterns(".venv", "__pycache__", "*.pyc", "*.log")
+    include_images = os.getenv("HF_INCLUDE_IMAGES", "0") == "1"
+    patterns = [".venv", "__pycache__", "*.pyc", "*.log"]
+    if not include_images:
+        patterns.extend(["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.bmp", "*.svg"])
+    ignore = shutil.ignore_patterns(*patterns)
     shutil.copytree(src, dst, ignore=ignore)
 
 
