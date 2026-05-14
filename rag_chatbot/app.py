@@ -4,9 +4,12 @@ import os
 import re
 import math
 import json
+import urllib.parse
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+
+from fastapi import Request
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -581,6 +584,35 @@ def _safe_doc_path(source: str) -> Path | None:
     return path
 
 
+def _safe_asset_path(source: str, asset_path: str) -> Path | None:
+    doc_path = _safe_doc_path(source)
+    if doc_path is None:
+        return None
+    decoded_path = urllib.parse.unquote(asset_path).replace("\\", "/")
+    try:
+        path = (doc_path.parent / decoded_path).resolve()
+        path.relative_to(DOCS_DIR)
+    except (ValueError, RuntimeError):
+        return None
+    if path.exists() and path.is_file():
+        return path
+
+    images_dir = doc_path.parent / "images"
+    if images_dir.exists():
+        original_name = Path(decoded_path).name
+        name_match = re.match(r"image(?:\s+(\d+))?\.[A-Za-z0-9]+$", original_name, flags=re.I)
+        if name_match:
+            number = name_match.group(1)
+            pattern = f"*image_{number}_*.png" if number else "*image_*.png"
+            candidates = sorted(images_dir.glob(pattern))
+            if candidates:
+                return candidates[0].resolve()
+        direct_matches = sorted(images_dir.glob(f"*{Path(original_name).stem.replace(' ', '_')}*"))
+        if direct_matches:
+            return direct_matches[0].resolve()
+    return None
+
+
 def docs_index() -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     if not DOCS_DIR.exists():
@@ -595,9 +627,8 @@ def docs_index() -> list[dict[str, str]]:
 
 
 def create_api_app():
-    from fastapi import FastAPI, Query, Request
-    from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, PlainTextResponse
-    import gradio as gr
+    from fastapi import FastAPI, Query
+    from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 
     api_app = FastAPI(title="HK Maintenance Portal")
 
@@ -626,6 +657,13 @@ def create_api_app():
         if path is None:
             return _json_response({"error": "document not found"}, status_code=404)
         return {"source": source, "title": path.stem, "content": path.read_text(encoding="utf-8", errors="replace")}
+
+    @api_app.get("/api/asset")
+    def api_asset(source: str = Query(...), path: str = Query(...)):
+        asset = _safe_asset_path(source, path)
+        if asset is None:
+            return _json_response({"error": "asset not found"}, status_code=404)
+        return FileResponse(asset)
 
     @api_app.get("/api/search")
     def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10)):
@@ -658,16 +696,13 @@ def create_api_app():
         response = llm_answer(query, top_k) if use_llm and USE_LLM else immediate_answer(query, top_k)
         return {"query": query, "answer": response}
 
-    @api_app.get("/chat")
-    def chat_redirect():
-        return RedirectResponse("/chat/")
-
     @api_app.get("/robots.txt")
     def robots_txt():
         return PlainTextResponse("User-agent: *\nDisallow: /\n")
 
-    if demo is not None:
-        api_app = gr.mount_gradio_app(api_app, demo, path="/chat")
+    # Existing Gradio chatbot is intentionally not mounted in the portal.
+    # if demo is not None:
+    #     api_app = gr.mount_gradio_app(api_app, demo, path="/chat")
     return api_app
 
 
