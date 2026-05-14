@@ -5,6 +5,8 @@ import re
 import math
 import json
 import urllib.parse
+import urllib.request
+import urllib.error
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +22,8 @@ DOCS_DIR = Path(os.getenv("DOCS_DIR", DEFAULT_DOCS_DIR)).resolve()
 MODEL_NAME = os.getenv("LOCAL_LLM_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
 USE_LLM = os.getenv("USE_LLM", "1") != "0"
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "512"))
+DEFAULT_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")
+ANTHROPIC_API_URL = os.getenv("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")
 
 
 QUERY_ALIASES = {
@@ -468,6 +472,64 @@ def answer(query: str, top_k: int, history: list[dict] | None = None) -> str:
     return immediate_answer(query, top_k)
 
 
+def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
+    api_key = api_key.strip()
+    model = (model or DEFAULT_CLAUDE_MODEL).strip()
+    if not api_key:
+        return "Claude API 키를 입력해야 합니다."
+
+    results, context = retrieve(query, top_k)
+    if not context:
+        return "관련 문서를 찾지 못했습니다. 고객사명, 작업명, 서버/계정/경로 같은 단어를 포함해 다시 질문해 주세요."
+
+    sources = "\n".join(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}" for chunk, score in results)
+    prompt = f"""질문:
+{query}
+
+문서 근거:
+{context}
+
+답변 조건:
+- 반드시 위 문서 근거 안의 내용만 사용하세요.
+- 계정, 경로, 서버, 작업 절차, 주의사항은 원문 값을 임의로 바꾸지 마세요.
+- 근거에 없으면 "확인 필요"라고 답하세요.
+- 답변 마지막에 참고 문서 파일명을 bullet로 정리하세요.
+"""
+    payload = {
+        "model": model,
+        "max_tokens": MAX_NEW_TOKENS,
+        "system": "당신은 HK 유지보수 문서 RAG 도우미입니다. 제공된 문서 근거만 바탕으로 한국어로 간결하고 정확하게 답변합니다.",
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    request = urllib.request.Request(
+        ANTHROPIC_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "content-type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return f"Claude API 오류({exc.code}): {body[:700]}"
+    except Exception as exc:
+        return f"Claude API 호출 실패: {exc}"
+
+    parts = []
+    for block in data.get("content", []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(str(block.get("text", "")).strip())
+    generated = "\n\n".join(part for part in parts if part)
+    if not generated:
+        generated = source_based_answer(query, results)
+    return f"{generated}\n\n---\n참고 문서:\n{sources}"
+
+
 def build_demo():
     import gradio as gr
 
@@ -654,7 +716,13 @@ def create_api_app():
 
     @api_app.get("/api/meta")
     def api_meta():
-        return {"docsDir": str(DOCS_DIR), "chunkCount": len(chunks), "docCount": len(docs_index()), "llm": MODEL_NAME if USE_LLM else "disabled"}
+        return {
+            "docsDir": str(DOCS_DIR),
+            "chunkCount": len(chunks),
+            "docCount": len(docs_index()),
+            "llm": MODEL_NAME if USE_LLM else "disabled",
+            "claudeDefaultModel": DEFAULT_CLAUDE_MODEL,
+        }
 
     @api_app.get("/api/docs")
     def api_docs():
@@ -702,7 +770,16 @@ def create_api_app():
         use_llm = bool(payload.get("useLlm", False))
         if not query:
             return _json_response({"error": "query is required"}, status_code=400)
-        response = llm_answer(query, top_k) if use_llm and USE_LLM else immediate_answer(query, top_k)
+        provider = str(payload.get("provider", "quick")).strip().lower()
+        if provider == "claude":
+            response = claude_answer(
+                query,
+                top_k,
+                str(payload.get("apiKey", "")),
+                str(payload.get("model", DEFAULT_CLAUDE_MODEL)),
+            )
+        else:
+            response = llm_answer(query, top_k) if use_llm and USE_LLM else immediate_answer(query, top_k)
         return {"query": query, "answer": response}
 
     @api_app.get("/robots.txt")

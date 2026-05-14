@@ -277,6 +277,7 @@
         font-size: 13px;
       }
       .toggle input { width: auto; }
+      .toolbar .toggle { display: none; }
       .section-title {
         margin: 16px 0 7px;
         color: var(--muted);
@@ -583,12 +584,18 @@
         const [chatQuery, setChatQuery] = React.useState("");
         const [chatAnswer, setChatAnswer] = React.useState("");
         const [topK, setTopK] = React.useState(5);
+        const [answerProvider, setAnswerProvider] = React.useState("quick");
+        const [claudeApiKey, setClaudeApiKey] = React.useState("");
+        const [claudeModel, setClaudeModel] = React.useState("claude-sonnet-4-5");
         const [useLlm, setUseLlm] = React.useState(false);
         const [loading, setLoading] = React.useState("");
         const [error, setError] = React.useState("");
 
         React.useEffect(() => {
-          api("/api/meta").then(setMeta).catch((err) => setError(err.message));
+          api("/api/meta").then((data) => {
+            setMeta(data);
+            if (data.claudeDefaultModel) setClaudeModel(data.claudeDefaultModel);
+          }).catch((err) => setError(err.message));
           api("/api/docs").then((data) => {
             const list = data.docs || [];
             setDocs(list);
@@ -646,7 +653,13 @@
           api("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: term, topK, useLlm }),
+            body: JSON.stringify({
+              query: term,
+              topK,
+              provider: answerProvider,
+              apiKey: answerProvider === "claude" ? claudeApiKey : "",
+              model: answerProvider === "claude" ? claudeModel : "",
+            }),
           })
             .then((data) => setChatAnswer(data.answer || ""))
             .catch((err) => setError(err.message))
@@ -768,6 +781,24 @@
                     onChange: (event) => setChatQuery(event.target.value),
                     placeholder: "문서 기반으로 질문하기"
                   }),
+                  h("select", { value: answerProvider, onChange: (event) => setAnswerProvider(event.target.value) },
+                    h("option", { value: "quick" }, "문서 기반 빠른 답변"),
+                    h("option", { value: "claude" }, "Claude API")
+                  ),
+                  answerProvider === "claude" && h("input", {
+                    type: "password",
+                    value: claudeApiKey,
+                    onChange: (event) => setClaudeApiKey(event.target.value),
+                    placeholder: "Anthropic API Key (저장하지 않음)"
+                  }),
+                  answerProvider === "claude" && h("select", {
+                    value: claudeModel,
+                    onChange: (event) => setClaudeModel(event.target.value)
+                  },
+                    h("option", { value: "claude-sonnet-4-5" }, "Claude Sonnet 4.5"),
+                    h("option", { value: "claude-opus-4-1-20250805" }, "Claude Opus 4.1"),
+                    h("option", { value: "claude-3-5-haiku-20241022" }, "Claude 3.5 Haiku")
+                  ),
                   h("div", { className: "toolbar" },
                     h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
                       [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "근거 " + n))
