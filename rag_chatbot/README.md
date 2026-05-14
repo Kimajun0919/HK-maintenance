@@ -7,7 +7,7 @@
 무료 배포는 Hugging Face Spaces의 Gradio Space를 권장합니다.
 
 - 기본 문서 경로: `../organized_maintenance_docs_simple`
-- 기본 LLM: `Qwen/Qwen2.5-0.5B-Instruct`
+- 기본 LLM: `HuggingFaceTB/SmolLM2-135M-Instruct`
 - 검색 방식: 순수 Python 문자 n-gram 검색
 - LLM 로딩 실패 시: 검색된 근거 기반 답변으로 자동 fallback
 
@@ -50,9 +50,9 @@ http://127.0.0.1:7860
 | 이름 | 기본값 | 설명 |
 |---|---|---|
 | `DOCS_DIR` | `../organized_maintenance_docs_simple` | RAG 대상 문서 폴더 |
-| `LOCAL_LLM_MODEL` | `Qwen/Qwen2.5-0.5B-Instruct` | 사용할 로컬 LLM |
+| `LOCAL_LLM_MODEL` | `HuggingFaceTB/SmolLM2-135M-Instruct` | 사용할 로컬 LLM |
 | `USE_LLM` | `1` | `0`이면 LLM 없이 근거 기반 검색 답변만 사용 |
-| `MAX_NEW_TOKENS` | `320` | 생성 답변 최대 토큰 |
+| `MAX_NEW_TOKENS` | `180` | 생성 답변 최대 토큰 |
 
 ## 로컬 테스트 완료 상태
 
