@@ -1,69 +1,100 @@
 # HK Maintenance RAG Chatbot
 
-`organized_maintenance_docs_simple` 문서를 대상으로 동작하는 경량 로컬 LLM RAG 챗봇입니다.
+유지보수 문서를 Supabase에 저장·관리하고 외부 LLM API로 RAG 질문·검색하는 웹 포털입니다.
 
-## 권장 배포
+## 기술 스택
 
-무료 배포는 Hugging Face Spaces의 Gradio Space를 권장합니다.
-
-- 기본 문서 경로: `../organized_maintenance_docs_simple`
-- 기본 LLM: `Qwen/Qwen2.5-0.5B-Instruct`
-- 검색 방식: 순수 Python 문자 n-gram 검색
-- 응답 방식: 검색 근거를 먼저 즉시 표시하고, LLM 답변이 준비되면 같은 답변 영역에 추가 표시
-- LLM 로딩 실패 시: 검색된 근거 기반 답변만 유지
+| 항목 | 내용 |
+|---|---|
+| 백엔드 | FastAPI + uvicorn |
+| 저장소 | Supabase (PostgreSQL) |
+| 검색 | 문자 n-gram 인메모리 인덱스 |
+| LLM | 외부 API (Claude / OpenAI-compatible) |
+| 프론트엔드 | React (CDN, 빌드 없음) |
 
 ## 로컬 실행
 
-가장 가벼운 테스트는 LLM 없이 검색 RAG만 실행하는 방식입니다. 문서 검색과 Gradio UI를 먼저 확인할 때 사용합니다.
-
 ```powershell
 cd rag_chatbot
-.\start_local.ps1
+python app.py
 ```
 
-실행 후 브라우저에서 아래 주소를 엽니다.
+브라우저에서 `http://127.0.0.1:7860` 접속.
 
-```text
-http://127.0.0.1:7860
+### 환경변수 (`.env`)
+
+```env
+# Supabase 연결 (필수)
+SUPABASE_DB_URL=postgresql://user:pass@host:port/db
+DOC_STORAGE=supabase
+SUPABASE_SEED_FROM_FILES=0   # 초기 씨딩 완료 후 0으로 설정
+
+# 포트 (선택, 기본 7860)
+APP_PORT=7860
+
+# 이미지 업로드 크기 제한 (선택, 기본 2MB)
+ASSET_MAX_SIZE_MB=2
 ```
 
-검색 파이프라인만 빠르게 확인하려면 아래 명령을 실행합니다.
+## 배포
+
+### Render.com
+
+루트의 `render.yaml` 기준으로 자동 설정됩니다.
+
+```
+Render → New → Blueprint → GitHub 레포 연결
+→ SUPABASE_DB_URL 입력 → Deploy
+```
+
+### Hugging Face Spaces
 
 ```powershell
-.\smoke_test.ps1
+# 루트 .env에 설정 후
+python ../deploy_hf_space.py
 ```
 
-로컬 LLM까지 설치해서 실행하려면 아래 명령을 사용합니다. Torch와 모델 파일을 내려받기 때문에 시간이 오래 걸릴 수 있습니다.
+Space 시크릿에 `SUPABASE_DB_URL`, `SUPABASE_SEED_FROM_FILES=0` 추가.
 
-```powershell
-.\start_local_llm.ps1
+### Docker
+
+```bash
+docker build -t hk-rag .
+docker run -p 8080:8080 \
+  -e SUPABASE_DB_URL=postgresql://... \
+  -e DOC_STORAGE=supabase \
+  -e SUPABASE_SEED_FROM_FILES=0 \
+  hk-rag
 ```
 
-## Hugging Face Spaces 배포
+## 지원 LLM API
 
-1. Hugging Face에서 새 Space 생성
-2. SDK는 `Gradio` 선택
-3. 이 폴더의 `app.py`, `requirements.txt`와 상위 문서 폴더 `organized_maintenance_docs_simple`를 함께 업로드
-4. Space 실행
+포털 내 **⚙ API 관리**에서 등록·선택합니다. 모든 설정은 브라우저 localStorage에만 저장됩니다.
 
-## 환경 변수
+| 유형 | 예시 |
+|---|---|
+| Claude (Anthropic) | claude-sonnet-4-5 등 |
+| OpenAI-compatible | OpenAI, Groq, Ollama, LM Studio, Together AI |
+| 커스텀 헤더 | Luxia (`apikey: {key}`, 경로: `/chat`) |
 
-| 이름 | 기본값 | 설명 |
+## 주요 API
+
+| 메서드 | 경로 | 기능 |
 |---|---|---|
-| `DOCS_DIR` | `../organized_maintenance_docs_simple` | RAG 대상 문서 폴더 |
-| `LOCAL_LLM_MODEL` | `Qwen/Qwen2.5-0.5B-Instruct` | 사용할 로컬 LLM |
-| `USE_LLM` | `1` | `0`이면 LLM 없이 근거 기반 검색 답변만 사용 |
-| `MAX_NEW_TOKENS` | `512` | 생성 답변 최대 토큰 |
+| GET | `/api/docs` | 문서·폴더 목록 |
+| POST | `/api/doc` | 문서 생성 |
+| PUT | `/api/doc` | 문서 수정 |
+| DELETE | `/api/doc` | 휴지통 이동 |
+| POST | `/api/asset` | 이미지 업로드 |
+| POST | `/api/convert` | .docx/.pdf → Markdown 변환 |
+| GET | `/api/trash` | 휴지통 목록 |
+| POST | `/api/trash/restore` | 복원 |
+| DELETE | `/api/trash` | 영구 삭제 |
+| POST | `/api/chat` | LLM 질문 |
+| GET | `/api/search` | RAG 검색 |
 
-## 로컬 테스트 완료 상태
+## 의존성 설치
 
-- 검색 스모크 테스트: 통과
-- 로컬 Gradio UI: `http://127.0.0.1:7860` 응답 확인
-- 기본 로컬 빠른 실행 모드: `USE_LLM=0`
-- Space 기본 동작: 검색 답변 먼저 표시 후 LLM 답변 지연 업데이트
-
-## 주의사항
-
-- 첫 실행 시 모델 다운로드 때문에 시간이 걸릴 수 있습니다.
-- 무료 CPU 환경에서는 답변 생성이 느릴 수 있습니다.
-- 문서에 계정, 서버, 경로 정보가 포함되어 있으므로 Space 공개 범위를 반드시 확인해야 합니다.
+```powershell
+pip install -r requirements.txt
+```
