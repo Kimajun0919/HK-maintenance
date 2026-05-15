@@ -1325,7 +1325,7 @@
         flex: 1;
         min-height: 0;
         display: grid;
-        grid-template-rows: minmax(0, 1fr) minmax(180px, .9fr);
+        grid-template-rows: minmax(0, 1fr) 170px;
         gap: 12px;
         align-items: stretch;
       }
@@ -1350,6 +1350,7 @@
         width: 100%;
         padding: 10px;
         text-align: left;
+        flex: 0 0 auto;
       }
       .result-item strong {
         display: block;
