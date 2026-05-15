@@ -14,7 +14,7 @@ const h = React.createElement;
         .replace(/'/g, "&#39;");
 
       const assetUrl = (url, baseSource) => {
-        if (/^(https?:)?\/\//i.test(url) || url.startsWith("data:")) return url;
+        if (/^(https?:)?\/\//i.test(url) || url.startsWith("data:") || url.startsWith("/")) return url;
         if (!baseSource) return url;
         return "/api/asset?source=" + encodeURIComponent(baseSource) + "&path=" + encodeURIComponent(url);
       };
@@ -139,6 +139,68 @@ const h = React.createElement;
         return h("div", { className, dangerouslySetInnerHTML: { __html: renderMarkdown(text, source) } });
       }
 
+      function RichEditor({ value, source, onChange, minHeight = "520px" }) {
+        const hostRef = React.useRef(null);
+        const editorRef = React.useRef(null);
+        const sourceRef = React.useRef(source);
+        const onChangeRef = React.useRef(onChange);
+
+        React.useEffect(() => { sourceRef.current = source; }, [source]);
+        React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+
+        React.useEffect(() => {
+          if (!hostRef.current || !window.toastui || !window.toastui.Editor) return;
+          const editor = new window.toastui.Editor({
+            el: hostRef.current,
+            initialValue: value || "",
+            initialEditType: "wysiwyg",
+            previewStyle: "vertical",
+            height: minHeight,
+            hideModeSwitch: true,
+            usageStatistics: false,
+            toolbarItems: [
+              ["heading", "bold", "italic", "strike"],
+              ["hr", "quote"],
+              ["ul", "ol", "task"],
+              ["table", "image", "link"],
+              ["code", "codeblock"]
+            ],
+            hooks: {
+              addImageBlobHook: async (blob, callback) => {
+                try {
+                  const form = new FormData();
+                  form.append("source", sourceRef.current || "");
+                  form.append("file", blob, blob.name || "image.png");
+                  const res = await fetch("/api/asset", { method: "POST", body: form });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || res.statusText);
+                  callback(data.url, blob.name || "image");
+                } catch (err) {
+                  alert(err.message || "이미지 업로드에 실패했습니다.");
+                }
+              }
+            },
+            events: {
+              change: () => onChangeRef.current(editor.getMarkdown())
+            }
+          });
+          editorRef.current = editor;
+          return () => {
+            editor.destroy();
+            editorRef.current = null;
+          };
+        }, [minHeight]);
+
+        React.useEffect(() => {
+          const editor = editorRef.current;
+          if (editor && value !== editor.getMarkdown()) {
+            editor.setMarkdown(value || "", false);
+          }
+        }, [value]);
+
+        return h("div", { className: "rich-editor", ref: hostRef });
+      }
+
       function App() {
         const [meta, setMeta] = React.useState(null);
         const [docs, setDocs] = React.useState([]);
@@ -160,7 +222,7 @@ const h = React.createElement;
         const [renameDocTitle, setRenameDocTitle] = React.useState("");
         const [newCustomer, setNewCustomer] = React.useState("");
         const [newTitle, setNewTitle] = React.useState("");
-        const [newContent, setNewContent] = React.useState("# 새 문서\n\n## 본문\n\n");
+        const [newContent, setNewContent] = React.useState("");
         const [activeTool, setActiveTool] = React.useState("search");
         const [searchQuery, setSearchQuery] = React.useState("");
         const [search, setSearch] = React.useState(null);
@@ -456,7 +518,13 @@ const h = React.createElement;
           setSelected("");
           setNewCustomer("");
           setNewTitle("");
-          setNewContent("# 새 문서\n\n## 본문\n\n");
+          setNewContent("");
+        };
+
+        const draftSource = (folder, title) => {
+          const safeFolder = (folder || "미분류").trim() || "미분류";
+          const safeTitle = (title || "새 문서").trim() || "새 문서";
+          return safeFolder + "/" + safeTitle + ".md";
         };
 
         const createDoc = (event) => {
@@ -701,10 +769,11 @@ const h = React.createElement;
                       placeholder: "문서 제목"
                     })
                   ),
-                  h("textarea", {
-                    rows: 10,
+                  h(RichEditor, {
                     value: newContent,
-                    onChange: (event) => setNewContent(event.target.value)
+                    source: draftSource(newCustomer, newTitle),
+                    onChange: setNewContent,
+                    minHeight: "480px"
                   }),
                   h("div", { className: "create-actions" },
                     h("button", { type: "button", onClick: () => setShowCreate(false) }, "취소"),
@@ -753,10 +822,11 @@ const h = React.createElement;
                   )
                 ),
                 editMode
-                  ? h("textarea", {
-                      className: "doc-editor",
+                  ? h(RichEditor, {
                       value: draft,
-                      onChange: (event) => setDraft(event.target.value)
+                      source: doc.source,
+                      onChange: setDraft,
+                      minHeight: "calc(100vh - 230px)"
                     })
                   : h("div", { className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source }))
               ) : h("div", { className: "reader-empty" },

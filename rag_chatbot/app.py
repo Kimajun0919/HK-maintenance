@@ -5,6 +5,7 @@ import re
 import math
 import json
 import mimetypes
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -271,6 +272,23 @@ def _db_asset_record(path: str) -> AssetRecord | None:
             if row is None:
                 return None
             return AssetRecord(path=row[0], mime_type=row[1], content=bytes(row[2]))
+
+
+def _db_upsert_asset(record: AssetRecord) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                insert into {SUPABASE_ASSETS_TABLE} (path, mime_type, content, size_bytes)
+                values (%s, %s, %s, %s)
+                on conflict (path) do update set
+                    mime_type = excluded.mime_type,
+                    content = excluded.content,
+                    size_bytes = excluded.size_bytes,
+                    updated_at = now()
+                """,
+                (record.path, record.mime_type, record.content, len(record.content)),
+            )
 
 
 def _db_folder_records() -> list[FolderRecord]:
@@ -1120,6 +1138,23 @@ def _safe_asset_path(source: str, asset_path: str) -> Path | None:
     return None
 
 
+def _asset_target_from_source(source: str, filename: str) -> tuple[str, str] | None:
+    source_value = _safe_source_value(source)
+    if source_value is None:
+        return None
+    source_parts = PurePosixPath(source_value).parts
+    if len(source_parts) < 2:
+        return None
+    clean_name = _slug_part(Path(filename or "image.png").name, "image.png")
+    if "." not in clean_name:
+        clean_name += ".png"
+    stem = PurePosixPath(source_value).stem
+    unique = f"{int(time.time() * 1000)}_{clean_name}"
+    asset_rel = (PurePosixPath(*source_parts[:-1]) / "images" / f"{stem}_{unique}").as_posix()
+    markdown_rel = f"images/{stem}_{unique}"
+    return asset_rel, markdown_rel
+
+
 def _safe_posix_parts(value: str) -> tuple[str, ...] | None:
     parts = PurePosixPath(value.replace("\\", "/")).parts
     if not parts or any(part in {"", ".", ".."} for part in parts):
@@ -1130,8 +1165,6 @@ def _safe_posix_parts(value: str) -> tuple[str, ...] | None:
 
 
 def _db_asset_record_for_request(source: str, asset_path: str) -> AssetRecord | None:
-    if _db_doc_record(source) is None:
-        return None
     source_parts = _safe_posix_parts(urllib.parse.unquote(source))
     asset_parts = _safe_posix_parts(urllib.parse.unquote(asset_path))
     if source_parts is None or asset_parts is None:
@@ -1142,6 +1175,11 @@ def _db_asset_record_for_request(source: str, asset_path: str) -> AssetRecord | 
     direct = _db_asset_record(direct_path)
     if direct is not None:
         return direct
+
+    requested_name = PurePosixPath(*asset_parts).name
+    for path in _db_asset_paths():
+        if PurePosixPath(path).name == requested_name:
+            return _db_asset_record(path)
 
     images_prefix = (doc_parent / "images").as_posix().strip("/")
     if images_prefix:
@@ -1497,6 +1535,36 @@ def create_api_app():
         if asset is None:
             return _json_response({"error": "asset not found"}, status_code=404)
         return FileResponse(asset)
+
+    @api_app.post("/api/asset")
+    async def api_upload_asset(request: Request):
+        form = await request.form()
+        source = str(form.get("source", "")).strip()
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "filename"):
+            return _json_response({"error": "file is required"}, status_code=400)
+        target = _asset_target_from_source(source, str(upload.filename))
+        if target is None:
+            return _json_response({"error": "valid document source is required"}, status_code=400)
+        asset_rel, markdown_rel = target
+        content = await upload.read()
+        if not content:
+            return _json_response({"error": "file is empty"}, status_code=400)
+        mime_type = getattr(upload, "content_type", None) or mimetypes.guess_type(str(upload.filename))[0] or "application/octet-stream"
+        if not mime_type.startswith("image/"):
+            return _json_response({"error": "only image uploads are supported"}, status_code=400)
+        if SUPABASE_ENABLED:
+            _db_upsert_asset(AssetRecord(path=asset_rel, mime_type=mime_type, content=content))
+        else:
+            path = (DOCS_DIR / asset_rel).resolve()
+            try:
+                path.relative_to(DOCS_DIR)
+            except ValueError:
+                return _json_response({"error": "invalid asset path"}, status_code=400)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        url = "/api/asset?source=" + urllib.parse.quote(source) + "&path=" + urllib.parse.quote(markdown_rel)
+        return {"path": markdown_rel, "url": url}
 
     @api_app.get("/api/search")
     def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10)):

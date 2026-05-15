@@ -420,6 +420,32 @@
         outline: 2px solid #99f6e4;
         outline-offset: -2px;
       }
+      .rich-editor {
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+      .create-form .rich-editor {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .doc-view .rich-editor {
+        border-top: 0;
+      }
+      .toastui-editor-defaultUI {
+        border-color: var(--line);
+        font-family: inherit;
+      }
+      .toastui-editor-defaultUI-toolbar {
+        background: #fbfcfe;
+      }
+      .toastui-editor-contents {
+        font-family: inherit;
+        font-size: 14px;
+      }
+      .toastui-editor-contents table {
+        width: auto;
+      }
       .create-panel {
         max-width: 760px;
         margin: 0 auto 16px;
