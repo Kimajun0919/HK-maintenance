@@ -1,0 +1,1566 @@
+﻿import { React, h } from "./shared/react.js";
+import { api } from "./lib/api.js";
+import { Icon } from "./components/Icon.js";
+import { Markdown } from "./components/Markdown.js";
+import { RichEditor } from "./components/RichEditor.js";
+
+export function App() {
+        const [meta, setMeta] = React.useState(null);
+        const [docs, setDocs] = React.useState([]);
+        const [folders, setFolders] = React.useState([]);
+        const [docFilter, setDocFilter] = React.useState("");
+        const [docSort, setDocSort] = React.useState(() => localStorage.getItem("hk.docSort") || "asc");
+        const [openFolders, setOpenFolders] = React.useState({});
+        const [selected, setSelected] = React.useState("");
+        const [doc, setDoc] = React.useState(null);
+        const [editMode, setEditMode] = React.useState(false);
+        const [draft, setDraft] = React.useState("");
+        const [showCreate, setShowCreate] = React.useState(false);
+        const [showFolderCreate, setShowFolderCreate] = React.useState(false);
+        const [newFolderName, setNewFolderName] = React.useState("");
+        const [folderPickerMode, setFolderPickerMode] = React.useState("");
+        const [folderPickerNewName, setFolderPickerNewName] = React.useState("");
+        const [renamingFolder, setRenamingFolder] = React.useState("");
+        const [renameFolderName, setRenameFolderName] = React.useState("");
+        const [showRenameDoc, setShowRenameDoc] = React.useState(false);
+        const [renameDocFolder, setRenameDocFolder] = React.useState("");
+        const [renameDocTitle, setRenameDocTitle] = React.useState("");
+        const [newCustomer, setNewCustomer] = React.useState("");
+        const [newTitle, setNewTitle] = React.useState("");
+        const [newContent, setNewContent] = React.useState("");
+        const [activeTool, setActiveTool] = React.useState("search");
+        const [searchQuery, setSearchQuery] = React.useState("");
+        const [search, setSearch] = React.useState(null);
+        const [chatQuery, setChatQuery] = React.useState("");
+        const [chatAnswer, setChatAnswer] = React.useState("");
+        const [topK, setTopK] = React.useState(5);
+        const [apiProviders, setApiProviders] = React.useState(() => {
+          try { return JSON.parse(localStorage.getItem("hk.apiProviders") || "[]"); } catch { return []; }
+        });
+        const [activeProviderId, setActiveProviderId] = React.useState(() => localStorage.getItem("hk.activeProviderId") || "");
+        const [apiSettingsOpen, setApiSettingsOpen] = React.useState(false);
+        const [apEditId, setApEditId] = React.useState(null);
+        const [apForm, setApForm] = React.useState({});
+        const [useLlm, setUseLlm] = React.useState(false);
+        const [leftWidth, setLeftWidth] = React.useState(() => Number(localStorage.getItem("hk.leftWidth")) || 320);
+        const [rightWidth, setRightWidth] = React.useState(() => Number(localStorage.getItem("hk.rightWidth")) || 360);
+        const [leftCollapsed, setLeftCollapsed] = React.useState(() => localStorage.getItem("hk.leftCollapsed") === "1");
+        const [rightCollapsed, setRightCollapsed] = React.useState(() => localStorage.getItem("hk.rightCollapsed") === "1");
+        const [explorerMenu, setExplorerMenu] = React.useState(null);
+        const [draggedDocSource, setDraggedDocSource] = React.useState("");
+        const [draggedFolderName, setDraggedFolderName] = React.useState("");
+        const [draggingSide, setDraggingSide] = React.useState("");
+        const [loading, setLoading] = React.useState("");
+        const [error, setError] = React.useState("");
+        const [trashOpen, setTrashOpen] = React.useState(false);
+        const [trashItems, setTrashItems] = React.useState(null);
+        const [folderOrder, setFolderOrder] = React.useState(() => {
+          try { return JSON.parse(localStorage.getItem("hk.folderOrder") || "null") || null; } catch { return null; }
+        });
+        const [pinnedFolders, setPinnedFolders] = React.useState(() => {
+          try { return new Set(JSON.parse(localStorage.getItem("hk.pinnedFolders") || "[]")); } catch { return new Set(); }
+        });
+        const [dragOverFolder, setDragOverFolder] = React.useState("");
+        const [folderManagerOpen, setFolderManagerOpen] = React.useState(false);
+        const [fmRenaming, setFmRenaming] = React.useState("");
+        const [fmRenameValue, setFmRenameValue] = React.useState("");
+        const [fmCreating, setFmCreating] = React.useState(false);
+        const [fmNewName, setFmNewName] = React.useState("");
+        const [fmDragFrom, setFmDragFrom] = React.useState("");
+        const [fmDragOver, setFmDragOver] = React.useState("");
+        const [fmSelectedFolder, setFmSelectedFolder] = React.useState(null);
+        const [fmViewMode, setFmViewMode] = React.useState("grid");
+
+        const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+        React.useEffect(() => {
+          localStorage.setItem("hk.leftWidth", String(leftWidth));
+        }, [leftWidth]);
+
+        React.useEffect(() => {
+          localStorage.setItem("hk.rightWidth", String(rightWidth));
+        }, [rightWidth]);
+
+        React.useEffect(() => {
+          localStorage.setItem("hk.leftCollapsed", leftCollapsed ? "1" : "0");
+        }, [leftCollapsed]);
+
+        React.useEffect(() => {
+          localStorage.setItem("hk.rightCollapsed", rightCollapsed ? "1" : "0");
+        }, [rightCollapsed]);
+
+        React.useEffect(() => {
+          localStorage.setItem("hk.docSort", docSort);
+        }, [docSort]);
+
+        const startResize = (side, event) => {
+          event.preventDefault();
+          const startX = event.clientX;
+          const startLeft = leftWidth;
+          const startRight = rightWidth;
+          setDraggingSide(side);
+
+          const onMove = (moveEvent) => {
+            const delta = moveEvent.clientX - startX;
+            if (side === "left") {
+              setLeftWidth(clamp(startLeft + delta, 240, 560));
+            } else {
+              setRightWidth(clamp(startRight - delta, 280, 620));
+            }
+          };
+
+          const onUp = () => {
+            setDraggingSide("");
+            document.removeEventListener("pointermove", onMove);
+            document.removeEventListener("pointerup", onUp);
+          };
+
+          document.addEventListener("pointermove", onMove);
+          document.addEventListener("pointerup", onUp);
+        };
+
+        React.useEffect(() => {
+          refreshMeta();
+          loadDocs();
+          loadTrash();
+        }, []);
+
+        const loadDocs = () => {
+          return api("/api/docs").then((data) => {
+            const list = data.docs || [];
+            const folderList = data.folders || [];
+            setDocs(list);
+            setFolders(folderList);
+            const firstFolders = {};
+            (folderList.length ? folderList : list.slice(0, 1)).slice(0, 1).forEach((item) => {
+              firstFolders[item.name || item.customer || "기타"] = true;
+            });
+            setOpenFolders((prev) => Object.keys(prev).length ? prev : firstFolders);
+            return list;
+          }).catch((err) => setError(err.message));
+        };
+
+        const refreshMeta = () => {
+          return api("/api/meta").then((data) => {
+            setMeta(data);
+            return data;
+          }).catch((err) => setError(err.message));
+        };
+
+        const groupedDocs = React.useMemo(() => {
+          const q = docFilter.trim().toLowerCase();
+          const groups = new Map();
+          folders.forEach((folder) => {
+            const name = folder.name || "기타";
+            if (!groups.has(name)) groups.set(name, { folder, items: [] });
+          });
+          docs.forEach((item) => {
+            const haystack = [item.title, item.customer, item.source].join(" ").toLowerCase();
+            if (q && !haystack.includes(q)) return;
+            const key = item.customer || "기타";
+            if (!groups.has(key)) groups.set(key, { folder: { name: key, sortOrder: 9999 }, items: [] });
+            groups.get(key).items.push(item);
+          });
+          const compareText = (a, b) => a.localeCompare(b, "ko");
+          const compareLatest = (a, b) => {
+            const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+            const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+            return tb - ta || compareText(a.title, b.title);
+          };
+          const entries = Array.from(groups.entries()).filter(([folder, group]) => {
+            if (!q) return true;
+            return folder.toLowerCase().includes(q) || group.items.length > 0;
+          });
+          entries.forEach(([, group]) => {
+            if (docSort === "latest") group.items.sort(compareLatest);
+            else group.items.sort((a, b) => compareText(a.title, b.title));
+          });
+          entries.sort((a, b) => {
+            const ap = pinnedFolders.has(a[0]);
+            const bp = pinnedFolders.has(b[0]);
+            if (ap !== bp) return ap ? -1 : 1;
+            if (docSort === "latest") {
+              const ta = Math.max(...a[1].items.map((i) => i.updatedAt ? new Date(i.updatedAt).getTime() : 0), 0);
+              const tb = Math.max(...b[1].items.map((i) => i.updatedAt ? new Date(i.updatedAt).getTime() : 0), 0);
+              return tb - ta || compareText(a[0], b[0]);
+            }
+            if (folderOrder) {
+              const ai = folderOrder.indexOf(a[0]);
+              const bi = folderOrder.indexOf(b[0]);
+              if (ai !== -1 && bi !== -1) return ai - bi;
+              if (ai !== -1) return -1;
+              if (bi !== -1) return 1;
+            }
+            return compareText(a[0], b[0]);
+          });
+          return entries.map(([folder, group]) => [folder, group.items, group.folder]);
+        }, [docs, folders, docFilter, docSort]);
+
+        const openDoc = (source) => {
+          setSelected(source);
+          setEditMode(false);
+          setShowCreate(false);
+          setLoading("doc");
+          setError("");
+          api("/api/doc?source=" + encodeURIComponent(source))
+            .then((data) => {
+              setDoc(data);
+              setDraft(data.content || "");
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const toggleFolder = (folder) => {
+          setOpenFolders((prev) => ({ ...prev, [folder]: !prev[folder] }));
+        };
+
+        const openFolderPicker = (mode) => {
+          setFolderPickerMode(mode);
+          setFolderPickerNewName("");
+        };
+
+        const closeFolderPicker = () => {
+          setFolderPickerMode("");
+          setFolderPickerNewName("");
+        };
+
+        const chooseFolder = (name) => {
+          if (folderPickerMode === "new-doc") setNewCustomer(name);
+          if (folderPickerMode === "rename-doc") setRenameDocFolder(name);
+          setOpenFolders((prev) => ({ ...prev, [name]: true }));
+          closeFolderPicker();
+        };
+
+        const createFolderFromPicker = (event) => {
+          event && event.preventDefault();
+          const name = folderPickerNewName.trim();
+          if (!name) return;
+          setLoading("folder");
+          setError("");
+          api("/api/folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          })
+            .then(() => {
+              if (folderPickerMode === "new-doc") setNewCustomer(name);
+              if (folderPickerMode === "rename-doc") setRenameDocFolder(name);
+              setShowFolderCreate(false);
+              setNewFolderName("");
+              setOpenFolders((prev) => ({ ...prev, [name]: true }));
+              closeFolderPicker();
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const createFolder = (event) => {
+          event && event.preventDefault();
+          if (!newFolderName.trim()) return;
+          setLoading("folder");
+          setError("");
+          api("/api/folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: newFolderName.trim() }),
+          })
+            .then(() => {
+              const name = newFolderName.trim();
+              setShowFolderCreate(false);
+              setNewFolderName("");
+              setOpenFolders((prev) => ({ ...prev, [name]: true }));
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const startRenameFolder = (folder) => {
+          setRenamingFolder(folder);
+          setRenameFolderName(folder);
+        };
+
+        const renameFolder = (event) => {
+          event && event.preventDefault();
+          if (!renamingFolder || !renameFolderName.trim()) return;
+          setLoading("folder");
+          setError("");
+          api("/api/folder", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: renamingFolder, newName: renameFolderName.trim() }),
+          })
+            .then(() => {
+              const oldName = renamingFolder;
+              const newName = renameFolderName.trim();
+              setRenamingFolder("");
+              setRenameFolderName("");
+              setOpenFolders((prev) => {
+                const next = { ...prev, [newName]: prev[oldName] };
+                delete next[oldName];
+                return next;
+              });
+              if (doc && doc.source.startsWith(oldName + "/")) {
+                const nextSource = newName + "/" + doc.source.slice(oldName.length + 1);
+                openDoc(nextSource);
+              }
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const deleteFolder = (folder) => {
+          if (!confirm(`'${folder}' 폴더를 삭제할까요? 비어 있는 폴더만 삭제됩니다.`)) return;
+          setLoading("folder");
+          setError("");
+          api("/api/folder", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: folder }),
+          })
+            .then(() => Promise.all([loadDocs(), refreshMeta()]))
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const startRenameDoc = () => {
+          if (!doc) return;
+          const parts = (doc.source || "").split("/");
+          setRenameDocFolder(parts[0] || "");
+          setRenameDocTitle(doc.title || "");
+          setShowRenameDoc(true);
+          setEditMode(false);
+        };
+
+        const renameDoc = (event) => {
+          event && event.preventDefault();
+          if (!doc || !renameDocFolder.trim() || !renameDocTitle.trim()) return;
+          setLoading("rename");
+          setError("");
+          api("/api/doc/rename", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source: doc.source,
+              folder: renameDocFolder.trim(),
+              title: renameDocTitle.trim(),
+            }),
+          })
+            .then((data) => {
+              setDoc(data);
+              setDraft(data.content || "");
+              setSelected(data.source);
+              setShowRenameDoc(false);
+              const folder = (data.source || "").split("/")[0] || "기타";
+              setOpenFolders((prev) => ({ ...prev, [folder]: true }));
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const moveDocToFolder = (source, folder) => {
+          const item = docs.find((entry) => entry.source === source);
+          if (!item || !folder || item.customer === folder) return;
+          setLoading("rename");
+          setError("");
+          api("/api/doc/rename", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source, folder, title: item.title }),
+          })
+            .then((data) => {
+              if (doc && doc.source === source) {
+                setDoc(data);
+                setDraft(data.content || "");
+                setSelected(data.source);
+              }
+              setOpenFolders((prev) => ({ ...prev, [folder]: true }));
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => {
+              setDraggedDocSource("");
+              setLoading("");
+            });
+        };
+
+        const reorderFolder = (targetFolder) => {
+          setDragOverFolder("");
+          if (!draggedFolderName || draggedFolderName === targetFolder) return;
+          const names = groupedDocs.map(([folder]) => folder);
+          const from = names.indexOf(draggedFolderName);
+          const to = names.indexOf(targetFolder);
+          if (from < 0 || to < 0) return;
+          names.splice(to, 0, names.splice(from, 1)[0]);
+          setFolderOrder(names);
+          localStorage.setItem("hk.folderOrder", JSON.stringify(names));
+          setDraggedFolderName("");
+        };
+
+        const togglePinFolder = (folder) => {
+          setPinnedFolders((prev) => {
+            const next = new Set(prev);
+            if (next.has(folder)) next.delete(folder); else next.add(folder);
+            localStorage.setItem("hk.pinnedFolders", JSON.stringify([...next]));
+            return next;
+          });
+        };
+
+
+        const saveProviders = (list) => {
+          setApiProviders(list);
+          localStorage.setItem("hk.apiProviders", JSON.stringify(list));
+        };
+
+        const selectProvider = (id) => {
+          setActiveProviderId(id);
+          localStorage.setItem("hk.activeProviderId", id);
+        };
+
+        const apOpenNew = () => {
+          setApEditId("__new__");
+          setApForm({ name: "", type: "openai", apiKey: "", baseUrl: "", model: "", authHeader: "", chatPath: "" });
+        };
+
+        const apOpenEdit = (p) => {
+          setApEditId(p.id);
+          setApForm({ name: p.name, type: p.type, apiKey: p.apiKey || "", baseUrl: p.baseUrl || "", model: p.model || "", authHeader: p.authHeader || "", chatPath: p.chatPath || "" });
+        };
+
+        const apSave = () => {
+          if (!apForm.name.trim()) return;
+          if (apEditId === "__new__") {
+            const newP = { ...apForm, id: String(Date.now()) };
+            saveProviders([...apiProviders, newP]);
+          } else {
+            saveProviders(apiProviders.map((p) => p.id === apEditId ? { ...p, ...apForm } : p));
+          }
+          setApEditId(null);
+        };
+
+        const apDelete = (id) => {
+          if (!confirm("이 API 설정을 삭제합니까?")) return;
+          saveProviders(apiProviders.filter((p) => p.id !== id));
+          if (activeProviderId === id) selectProvider(apiProviders.filter((p) => p.id !== id)[0]?.id || "");
+        };
+
+        const fmSubmitRename = (event) => {
+          event && event.preventDefault();
+          const newName = fmRenameValue.trim();
+          if (!fmRenaming || !newName) { setFmRenaming(""); return; }
+          const oldName = fmRenaming;
+          setLoading("folder");
+          api("/api/folder", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: oldName, newName }),
+          })
+            .then(() => {
+              setFmRenaming(""); setFmRenameValue("");
+              setOpenFolders((prev) => { const n = { ...prev, [newName]: prev[oldName] }; delete n[oldName]; return n; });
+              setPinnedFolders((prev) => {
+                if (!prev.has(oldName)) return prev;
+                const n = new Set(prev); n.delete(oldName); n.add(newName);
+                localStorage.setItem("hk.pinnedFolders", JSON.stringify([...n])); return n;
+              });
+              setFolderOrder((prev) => {
+                if (!prev) return prev;
+                const n = prev.map((x) => x === oldName ? newName : x);
+                localStorage.setItem("hk.folderOrder", JSON.stringify(n)); return n;
+              });
+              if (doc && doc.source.startsWith(oldName + "/"))
+                openDoc(newName + "/" + doc.source.slice(oldName.length + 1));
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const fmSubmitCreate = (event) => {
+          event && event.preventDefault();
+          const name = fmNewName.trim();
+          if (!name) { setFmCreating(false); return; }
+          setLoading("folder");
+          api("/api/folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          })
+            .then(() => { setFmNewName(""); setFmCreating(false); return Promise.all([loadDocs(), refreshMeta()]); })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const fmReorder = (targetFolder) => {
+          setFmDragOver("");
+          if (!fmDragFrom || fmDragFrom === targetFolder) { setFmDragFrom(""); return; }
+          const names = groupedDocs.map(([f]) => f);
+          const from = names.indexOf(fmDragFrom);
+          const to = names.indexOf(targetFolder);
+          if (from < 0 || to < 0) { setFmDragFrom(""); return; }
+          names.splice(to, 0, names.splice(from, 1)[0]);
+          setFolderOrder(names);
+          localStorage.setItem("hk.folderOrder", JSON.stringify(names));
+          setFmDragFrom("");
+        };
+
+        const runSearch = (event) => {
+          event && event.preventDefault();
+          const term = searchQuery.trim();
+          if (!term) return;
+          setLoading("search");
+          setError("");
+          api("/api/search?q=" + encodeURIComponent(term) + "&top_k=" + topK)
+            .then(setSearch)
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const askChat = (event) => {
+          event && event.preventDefault();
+          const term = chatQuery.trim();
+          if (!term) return;
+          if (!activeProviderId || !apiProviders.find((x) => x.id === activeProviderId)) {
+            setError("⚙ API를 먼저 등록하고 선택하세요.");
+            setApiSettingsOpen(true);
+            return;
+          }
+          setLoading("chat");
+          setError("");
+          api("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: term,
+              topK,
+              ...(() => {
+                const p = apiProviders.find((x) => x.id === activeProviderId);
+                if (!p) return { provider: "__none__" };
+                return { provider: p.type, apiKey: p.apiKey || "", model: p.model || "", baseUrl: p.baseUrl || "", authHeader: p.authHeader || "", chatPath: p.chatPath || "" };
+              })(),
+            }),
+          })
+            .then((data) => setChatAnswer(data.answer || ""))
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const startCreate = () => {
+          setShowCreate(true);
+          setEditMode(false);
+          setDoc(null);
+          setSelected("");
+          setNewCustomer("");
+          setNewTitle("");
+          setNewContent("");
+        };
+
+        const draftSource = (folder, title) => {
+          const safeFolder = (folder || "미분류").trim() || "미분류";
+          const safeTitle = (title || "새 문서").trim() || "새 문서";
+          return safeFolder + "/" + safeTitle + ".md";
+        };
+
+        const createDoc = (event) => {
+          event && event.preventDefault();
+          if (!newTitle.trim()) {
+            setError("문서 제목을 입력하세요.");
+            return;
+          }
+          setLoading("save");
+          setError("");
+          api("/api/doc", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              customer: newCustomer.trim() || "미분류",
+              title: newTitle.trim(),
+              content: newContent,
+            }),
+          })
+            .then((data) => {
+              setShowCreate(false);
+              setDoc(data);
+              setDraft(data.content || "");
+              setSelected(data.source);
+              setEditMode(false);
+              const folder = (data.source || "").split("/")[0] || "기타";
+              setOpenFolders((prev) => ({ ...prev, [folder]: true }));
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const saveDoc = () => {
+          if (!doc || !draft.trim()) return;
+          setLoading("save");
+          setError("");
+          api("/api/doc", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source: doc.source, content: draft }),
+          })
+            .then((data) => {
+              setDoc(data);
+              setDraft(data.content || "");
+              setEditMode(false);
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const startRenameDocItem = (item) => {
+          setDoc((prev) => prev && prev.source === item.source ? prev : { source: item.source, title: item.title, content: "" });
+          setSelected(item.source);
+          setRenameDocFolder(item.customer || "");
+          setRenameDocTitle(item.title || "");
+          setShowRenameDoc(true);
+          setEditMode(false);
+        };
+
+        const deleteDocItem = (item) => {
+          if (!confirm("문서를 휴지통으로 이동합니다.")) return;
+          setLoading("delete");
+          setError("");
+          api("/api/doc", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source: item.source }),
+          })
+            .then(() => {
+              if (doc && doc.source === item.source) {
+                setDoc(null);
+                setDraft("");
+                setSelected("");
+                setEditMode(false);
+              }
+              return Promise.all([loadDocs(), refreshMeta(), loadTrash()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const deleteDoc = () => {
+          if (!doc) return;
+          if (!confirm("문서를 휴지통으로 이동합니다. 30일 후 자동 영구 삭제됩니다.")) return;
+          setLoading("delete");
+          setError("");
+          api("/api/doc", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source: doc.source }),
+          })
+            .then(() => {
+              setDoc(null);
+              setDraft("");
+              setSelected("");
+              setEditMode(false);
+              return Promise.all([loadDocs(), refreshMeta(), loadTrash()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const loadTrash = () => {
+          return api("/api/trash").then(setTrashItems).catch((err) => setError(err.message));
+        };
+
+        const openTrash = () => {
+          setTrashOpen(true);
+          loadTrash();
+        };
+
+        const restoreItem = (type, key) => {
+          setLoading("trash");
+          api("/api/trash/restore", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, key }),
+          })
+            .then(() => Promise.all([loadTrash(), type === "doc" ? loadDocs() : Promise.resolve()]))
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const permanentDeleteItem = (type, key) => {
+          if (!confirm("영구 삭제합니다. 복원할 수 없습니다.")) return;
+          setLoading("trash");
+          api("/api/trash", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, key }),
+          })
+            .then(() => loadTrash())
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const emptyTrash = () => {
+          if (!confirm("휴지통을 비웁니다. 모든 항목이 영구 삭제됩니다.")) return;
+          setLoading("trash");
+          api("/api/trash", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "all" }),
+          })
+            .then(() => loadTrash())
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const deleteAsset = (assetPath) => {
+          if (!confirm(`이미지를 휴지통으로 이동합니다.\n${assetPath.split("/").pop()}`)) return;
+          api("/api/asset", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: assetPath }),
+          })
+            .then(() => Promise.all([doc ? openDoc(doc.source) : Promise.resolve(), loadTrash()]))
+            .catch((err) => setError(err.message));
+        };
+
+        const extractDocImages = (source, content) => {
+          const folder = source.split("/").slice(0, -1).join("/");
+          const images = [];
+          const regex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+          let match;
+          while ((match = regex.exec(content)) !== null) {
+            const rawPath = match[2].trim().split(/\s+/)[0];
+            if (rawPath.startsWith("http") || rawPath.startsWith("data:") || rawPath.startsWith("/")) continue;
+            const dbPath = folder ? `${folder}/${rawPath}` : rawPath;
+            const url = `/api/asset?source=${encodeURIComponent(source)}&path=${encodeURIComponent(rawPath)}`;
+            images.push({ alt: match[1], rawPath, dbPath, url });
+          }
+          return images;
+        };
+
+        const trashDaysLeft = (deletedAt) => {
+          const ms = 30 * 24 * 60 * 60 * 1000 - (Date.now() - new Date(deletedAt).getTime());
+          return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
+        };
+
+        const appStyle = {
+          "--left-width": leftCollapsed ? "0px" : leftWidth + "px",
+          "--right-width": rightCollapsed ? "0px" : rightWidth + "px",
+          "--left-resizer-width": leftCollapsed ? "0px" : "6px",
+          "--right-resizer-width": rightCollapsed ? "0px" : "6px",
+        };
+
+        return h("div", {
+          className: "app " + (leftCollapsed ? "left-collapsed " : "") + (rightCollapsed ? "right-collapsed" : ""),
+          style: appStyle,
+          onClick: () => explorerMenu && setExplorerMenu(null)
+        },
+          folderManagerOpen && h("div", { className: "modal-backdrop", onMouseDown: () => { setFolderManagerOpen(false); setFmRenaming(""); setFmCreating(false); setFmSelectedFolder(null); } },
+            h("section", { className: "fm-modal", onMouseDown: (e) => e.stopPropagation() },
+
+              h("header", { className: "fm-header" },
+                h("div", { className: "fm-title" },
+                  fmSelectedFolder
+                    ? [
+                        h("button", { key: "back", type: "button", className: "fm-back-btn", onClick: () => { setFmSelectedFolder(null); setFmRenaming(""); } }, "←"),
+                        h(Icon, { key: "icon", name: "folder" }),
+                        h("span", { key: "slash", className: "fm-breadcrumb-sep" }, "/"),
+                        h("strong", { key: "name" }, fmSelectedFolder)
+                      ]
+                    : [
+                        h(Icon, { key: "icon", name: "folder" }),
+                        h("strong", { key: "title" }, "폴더 관리"),
+                        h("span", { key: "count", className: "fm-subtitle" }, `${folders.length}개`)
+                      ]
+                ),
+                h("button", { type: "button", className: "icon-button", onClick: () => { setFolderManagerOpen(false); setFmSelectedFolder(null); } }, "×")
+              ),
+
+              h("div", { className: "fm-toolbar" },
+                h("div", { className: "fm-toolbar-left" },
+                  fmSelectedFolder
+                    ? [
+                        h("button", { key: "newfile", type: "button", className: "fm-new-btn", onClick: () => { setFolderManagerOpen(false); setFmSelectedFolder(null); startCreate(); setNewCustomer(fmSelectedFolder); } }, "+ 새 파일"),
+                        h("span", { key: "count", className: "fm-toolbar-count" }, `파일 ${(groupedDocs.find(([f]) => f === fmSelectedFolder) || [null, []])[1].length}개`)
+                      ]
+                    : [
+                        h("button", { key: "newfolder", type: "button", className: "fm-new-btn", onClick: () => { setFmCreating(true); setFmNewName(""); setFmRenaming(""); } }, "+ 새 폴더"),
+                        h("span", { key: "count", className: "fm-toolbar-count" }, `폴더 ${folders.length}개`)
+                      ]
+                ),
+                h("div", { className: "fm-view-toggle" },
+                  h("button", { type: "button", className: "icon-button explorer-action" + (fmViewMode === "grid" ? " active" : ""), title: "그리드형", onClick: () => setFmViewMode("grid") }, h(Icon, { name: "grid-view" })),
+                  h("button", { type: "button", className: "icon-button explorer-action" + (fmViewMode === "list" ? " active" : ""), title: "리스트형", onClick: () => setFmViewMode("list") }, h(Icon, { name: "list-view" }))
+                )
+              ),
+
+              (() => {
+                const fileSvg = (w) => h("svg", { width: w, height: w, viewBox: "0 0 24 24", fill: "#e0f2fe", stroke: "#38bdf8", strokeWidth: 1, "aria-hidden": "true" },
+                  h("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }),
+                  h("path", { d: "M14 2v6h6" })
+                );
+                const folderSvg = (w, pinned) => h("svg", { width: w, height: w, viewBox: "0 0 24 24", fill: pinned ? "#f59e0b" : "#60a5fa", stroke: pinned ? "#d97706" : "#3b82f6", strokeWidth: 1, "aria-hidden": "true" },
+                  h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
+                );
+                const dragHandle = (name) => h("span", {
+                  className: "fm-card-drag",
+                  draggable: true,
+                  title: "드래그하여 순서 변경",
+                  onClick: (e) => e.stopPropagation(),
+                  onDragStart: (e) => { e.stopPropagation(); setFmDragFrom(name); },
+                  onDragEnd: () => { setFmDragFrom(""); setFmDragOver(""); }
+                }, "⠿");
+
+                if (fmSelectedFolder) {
+                  const fileItems = (groupedDocs.find(([f]) => f === fmSelectedFolder) || [null, []])[1];
+                  if (fileItems.length === 0) return h("div", { className: "fm-body" }, h("div", { className: "fm-empty" }, "이 폴더에 파일이 없습니다."));
+                  if (fmViewMode === "list")
+                    return h("div", { className: "fm-list" },
+                      fileItems.map((item) =>
+                        h("div", { key: item.source, className: "fm-list-row", onClick: () => { openDoc(item.source); setFolderManagerOpen(false); setFmSelectedFolder(null); } },
+                          h("div", { className: "fm-list-icon" }, fileSvg(18)),
+                          h("span", { className: "fm-list-name", title: item.title }, item.title),
+                          h("span", { className: "fm-list-meta" }, item.source),
+                          item.updatedAt && h("span", { className: "fm-list-date" }, new Date(item.updatedAt).toLocaleDateString("ko")),
+                          h("div", { className: "fm-list-actions", onClick: (e) => e.stopPropagation() },
+                            h("button", { type: "button", onClick: (e) => { e.stopPropagation(); setFolderManagerOpen(false); setFmSelectedFolder(null); startRenameDocItem(item); } }, "이름"),
+                            h("button", { type: "button", className: "danger-text", onClick: (e) => { e.stopPropagation(); deleteDocItem(item); } }, "삭제")
+                          )
+                        )
+                      )
+                    );
+                  return h("div", { className: "fm-body" },
+                    fileItems.map((item) =>
+                      h("div", { key: item.source, className: "fm-card fm-file-card", onClick: () => { openDoc(item.source); setFolderManagerOpen(false); setFmSelectedFolder(null); } },
+                        h("div", { className: "fm-card-icon" }, fileSvg(44)),
+                        h("span", { className: "fm-card-name", title: item.title }, item.title),
+                        item.updatedAt && h("span", { className: "fm-card-count" }, new Date(item.updatedAt).toLocaleDateString("ko")),
+                        h("div", { className: "fm-card-actions", onClick: (e) => e.stopPropagation() },
+                          h("button", { type: "button", onClick: (e) => { e.stopPropagation(); setFolderManagerOpen(false); setFmSelectedFolder(null); startRenameDocItem(item); } }, "이름"),
+                          h("button", { type: "button", className: "danger-text", onClick: (e) => { e.stopPropagation(); deleteDocItem(item); } }, "삭제")
+                        )
+                      )
+                    )
+                  );
+                }
+
+                const folderCards = groupedDocs.map(([folderName, items]) => {
+                  const isPinned = pinnedFolders.has(folderName);
+                  const isRenaming = fmRenaming === folderName;
+                  const dragProps = {
+                    onDragOver: (e) => { e.preventDefault(); if (fmDragFrom && fmDragFrom !== folderName) setFmDragOver(folderName); },
+                    onDragLeave: () => setFmDragOver(""),
+                    onDrop: (e) => { e.preventDefault(); fmReorder(folderName); }
+                  };
+                  const renameInput = h("form", { className: "fm-rename-form", onSubmit: fmSubmitRename, onClick: (e) => e.stopPropagation() },
+                    h("input", { className: "fm-rename-input", value: fmRenameValue, onChange: (e) => setFmRenameValue(e.target.value), autoFocus: true, onBlur: fmSubmitRename, onKeyDown: (e) => { if (e.key === "Escape") setFmRenaming(""); } })
+                  );
+                  const actions = h("div", { className: fmViewMode === "list" ? "fm-list-actions" : "fm-card-actions", onClick: (e) => e.stopPropagation() },
+                    h("button", { type: "button", onClick: () => togglePinFolder(folderName) }, isPinned ? "고정 해제" : "고정"),
+                    h("button", { type: "button", onClick: () => { setFmRenaming(folderName); setFmRenameValue(folderName); } }, "이름"),
+                    h("button", { type: "button", className: "danger-text", onClick: () => deleteFolder(folderName) }, "삭제")
+                  );
+
+                  if (fmViewMode === "list")
+                    return h("div", { key: folderName, className: "fm-list-row" + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : ""), onClick: () => { if (!isRenaming && !fmDragFrom) setFmSelectedFolder(folderName); }, ...dragProps },
+                      dragHandle(folderName),
+                      h("div", { className: "fm-list-icon" }, folderSvg(18, isPinned)),
+                      isPinned && h("span", { style: { fontSize: "11px" } }, "📌"),
+                      isRenaming ? renameInput : h("span", { className: "fm-list-name", title: folderName, onDoubleClick: (e) => { e.stopPropagation(); setFmRenaming(folderName); setFmRenameValue(folderName); } }, folderName),
+                      h("span", { className: "fm-list-date" }, `${items.length}개`),
+                      actions
+                    );
+
+                  return h("div", { key: folderName, className: "fm-card" + (isPinned ? " fm-pinned" : "") + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : ""), onClick: () => { if (!isRenaming && !fmDragFrom) setFmSelectedFolder(folderName); }, ...dragProps },
+                    h("div", { className: "fm-card-top" }, dragHandle(folderName)),
+                    h("div", { className: "fm-card-icon" }, folderSvg(48, isPinned), isPinned && h("span", { className: "fm-pin-badge" }, "📌")),
+                    isRenaming ? renameInput : h("span", { className: "fm-card-name", title: folderName, onDoubleClick: (e) => { e.stopPropagation(); setFmRenaming(folderName); setFmRenameValue(folderName); } }, folderName),
+                    h("span", { className: "fm-card-count" }, `${items.length}개`),
+                    actions
+                  );
+                });
+
+                if (fmViewMode === "list")
+                  return h("div", { className: "fm-list" },
+                    folderCards,
+                    groupedDocs.length === 0 && h("div", { className: "fm-empty" }, "폴더가 없습니다.")
+                  );
+
+                return h("div", { className: "fm-body" },
+                  folderCards,
+                  fmCreating && h("div", { className: "fm-card fm-creating" },
+                    h("div", { className: "fm-card-icon" },
+                      h("svg", { width: 48, height: 48, viewBox: "0 0 24 24", fill: "#e2e8f0", stroke: "#94a3b8", strokeWidth: 1, "aria-hidden": "true" },
+                        h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
+                      )
+                    ),
+                    h("form", { className: "fm-rename-form", onSubmit: fmSubmitCreate },
+                      h("input", { className: "fm-rename-input", value: fmNewName, placeholder: "폴더명", onChange: (e) => setFmNewName(e.target.value), autoFocus: true, onBlur: () => { if (!fmNewName.trim()) setFmCreating(false); else fmSubmitCreate(); }, onKeyDown: (e) => { if (e.key === "Escape") { setFmCreating(false); setFmNewName(""); } } })
+                    )
+                  ),
+                  groupedDocs.length === 0 && !fmCreating && h("div", { className: "fm-empty" }, "폴더가 없습니다.")
+                );
+              })()
+            )
+          ),
+
+          apiSettingsOpen && h("div", { className: "modal-backdrop", onMouseDown: () => { setApiSettingsOpen(false); setApEditId(null); } },
+            h("section", { className: "api-modal", onMouseDown: (e) => e.stopPropagation() },
+              h("header", { className: "fm-header" },
+                h("div", { className: "fm-title" }, h("strong", null, "API 관리")),
+                h("button", { type: "button", className: "icon-button", onClick: () => { setApiSettingsOpen(false); setApEditId(null); } }, "×")
+              ),
+
+              apEditId
+                ? h("div", { className: "ap-form-panel" },
+                    h("h3", { className: "ap-form-title" }, apEditId === "__new__" ? "새 API 추가" : "API 편집"),
+                    h("label", null, "이름",
+                      h("input", { value: apForm.name, placeholder: "예: GPT-4o, Groq Llama, Ollama …", onChange: (e) => setApForm((f) => ({ ...f, name: e.target.value })) })
+                    ),
+                    h("label", null, "유형",
+                      h("select", { value: apForm.type, onChange: (e) => setApForm((f) => ({ ...f, type: e.target.value })) },
+                        h("option", { value: "openai" }, "OpenAI-compatible (OpenAI / Groq / Ollama / LM Studio …)"),
+                        h("option", { value: "claude" }, "Claude (Anthropic)")
+                      )
+                    ),
+                    apForm.type === "openai" && h("label", null, "Base URL",
+                      h("input", { value: apForm.baseUrl, placeholder: "https://api.openai.com/v1", onChange: (e) => setApForm((f) => ({ ...f, baseUrl: e.target.value })) })
+                    ),
+                    h("label", null, "API Key",
+                      h("input", { type: "password", value: apForm.apiKey, placeholder: apForm.type === "openai" ? "sk-… (없으면 비워둠)" : "sk-ant-…", onChange: (e) => setApForm((f) => ({ ...f, apiKey: e.target.value })) })
+                    ),
+                    apForm.type === "openai" && h("label", null,
+                      "인증 헤더 이름 ",
+                      h("span", { className: "ap-field-hint" }, "(기본: Authorization → Bearer 방식)"),
+                      h("input", { value: apForm.authHeader, placeholder: "예: apikey  (비워두면 Authorization: Bearer 사용)", onChange: (e) => setApForm((f) => ({ ...f, authHeader: e.target.value })) })
+                    ),
+                    apForm.type === "openai" && h("label", null,
+                      "채팅 엔드포인트 경로 ",
+                      h("span", { className: "ap-field-hint" }, "(기본: /chat/completions)"),
+                      h("input", { value: apForm.chatPath, placeholder: "예: /chat  또는 /v1/chat/completions", onChange: (e) => setApForm((f) => ({ ...f, chatPath: e.target.value })) })
+                    ),
+                    h("label", null, "모델",
+                      h("input", { value: apForm.model, placeholder: apForm.type === "claude" ? "claude-sonnet-4-5" : "gpt-4o-mini", onChange: (e) => setApForm((f) => ({ ...f, model: e.target.value })) })
+                    ),
+                    apForm.type === "openai" && h("p", { className: "ap-hint" },
+                      "💡 OpenAI: api.openai.com/v1 | Groq: api.groq.com/openai/v1 | Ollama: localhost:11434/v1 | LM Studio: localhost:1234/v1",
+                      h("br", null),
+                      "💡 Luxia: bridge.luxiacloud.com/luxia/v1 — 헤더: apikey, 경로: /chat"
+                    ),
+                    h("div", { className: "ap-form-actions" },
+                      h("button", { type: "button", onClick: () => setApEditId(null) }, "취소"),
+                      h("button", { type: "button", className: "primary", onClick: apSave }, "저장")
+                    )
+                  )
+                : h("div", { className: "ap-list" },
+                    apiProviders.length === 0 && h("p", { className: "ap-empty" }, "등록된 API가 없습니다."),
+                    apiProviders.map((p) =>
+                      h("div", { key: p.id, className: "ap-row" + (activeProviderId === p.id ? " ap-active" : ""), onClick: () => selectProvider(p.id) },
+                        h("div", { className: "ap-row-info" },
+                          h("span", { className: "ap-name" }, p.name),
+                          h("span", { className: "ap-type" }, p.type === "claude" ? "Claude" : (p.baseUrl || "OpenAI")),
+                          h("span", { className: "ap-model" }, p.model),
+                          activeProviderId === p.id && h("span", { className: "ap-badge" }, "사용 중")
+                        ),
+                        h("div", { className: "ap-row-actions", onClick: (e) => e.stopPropagation() },
+                          h("button", { type: "button", onClick: () => apOpenEdit(p) }, "편집"),
+                          h("button", { type: "button", className: "danger-text", onClick: () => apDelete(p.id) }, "삭제")
+                        )
+                      )
+                    ),
+                    h("button", { type: "button", className: "fm-new-btn", style: { marginTop: "12px" }, onClick: apOpenNew }, "+ API 추가")
+                  )
+            )
+          ),
+
+          folderPickerMode && h("div", { className: "modal-backdrop", onMouseDown: closeFolderPicker },
+            h("section", { className: "folder-modal", onMouseDown: (event) => event.stopPropagation() },
+              h("header", null,
+                h("strong", null, folderPickerMode === "sidebar" ? "새 폴더" : "폴더 선택"),
+                h("button", { type: "button", className: "icon-button", onClick: closeFolderPicker }, "x")
+              ),
+              folderPickerMode !== "sidebar" && h("div", { className: "folder-picker-list" },
+                folders.map((folder) => h("button", {
+                  key: folder.name,
+                  type: "button",
+                  className: "folder-choice",
+                  onClick: () => chooseFolder(folder.name)
+                },
+                  h("strong", null, folder.name),
+                  h("span", null, `${folder.docCount || 0} documents`)
+                ))
+              ),
+              h("form", { className: "folder-create-row", onSubmit: createFolderFromPicker },
+                h("input", {
+                  value: folderPickerNewName,
+                  onChange: (event) => setFolderPickerNewName(event.target.value),
+                  placeholder: "새 폴더명"
+                }),
+                h("button", { type: "submit", className: "primary" }, loading === "folder" ? "생성 중" : "생성")
+              )
+            )
+          ),
+          h("nav", { className: "side-rail left-rail", "aria-label": "왼쪽 메뉴" },
+            h("button", {
+              type: "button",
+              className: "rail-button " + (!leftCollapsed ? "active" : ""),
+              title: leftCollapsed ? "자료 목록 펼치기" : "자료 목록 접기",
+              onClick: () => setLeftCollapsed((value) => !value)
+            }, "☰"),
+            h("button", {
+              type: "button",
+              className: "rail-button",
+              title: "자료 목록 폭 초기화",
+              onClick: () => setLeftWidth(320)
+            }, "↔"),
+            h("div", { className: "rail-spacer" })
+          ),
+          h("aside", { className: "left-sidebar" },
+            h("div", { className: "brand explorer-head" },
+              h("div", { className: "panel-title-row" },
+                h("h1", null, "Explorer"),
+                h("div", { className: "panel-actions" },
+                  h("button", {
+                    type: "button",
+                    className: "icon-button",
+                    title: "왼쪽 사이드바 접기",
+                    onClick: () => setLeftCollapsed(true)
+                  }, "‹")
+                )
+              ),
+              h("p", null, "자료를 폴더별로 열고 가운데에서 바로 확인")
+            ),
+            h("div", { className: "stats" },
+              h("span", null, "문서 ", h("b", null, meta ? meta.docCount : "-")),
+              h("span", null, "청크 ", h("b", null, meta ? meta.chunkCount : "-")),
+              meta && meta.assetTotalBytes > 0 && h("span", {
+                title: `이미지 ${meta.assetCount}개 / 파일당 최대 ${(meta.assetMaxSizeBytes / 1024 / 1024).toFixed(0)}MB`
+              }, "이미지 ", h("b", null, (meta.assetTotalBytes / 1024 / 1024).toFixed(1) + "MB"))
+            ),
+            h("div", { className: "list-filter" },
+              h("input", {
+                value: docFilter,
+                onChange: (event) => setDocFilter(event.target.value),
+                placeholder: "검색"
+              }),
+              h("div", { className: "explorer-action-row" },
+                h("button", {
+                  type: "button",
+                  className: "icon-button explorer-action",
+                  title: "홈 (선택 해제)",
+                  onClick: () => {
+                    setDoc(null); setSelected(""); setDraft(""); setEditMode(false);
+                    setShowCreate(false); setShowRenameDoc(false); setTrashOpen(false);
+                    setError("");
+                  }
+                }, "⌂"),
+                h("button", {
+                  type: "button",
+                  className: "icon-button explorer-action" + (folderManagerOpen ? " active" : ""),
+                  title: "폴더 관리",
+                  onClick: () => setFolderManagerOpen((v) => !v)
+                }, h(Icon, { name: "folder" })),
+                h("button", {
+                  type: "button",
+                  className: "icon-button explorer-action",
+                  title: "새 문서",
+                  onClick: startCreate
+                }, h(Icon, { name: "file-plus" })),
+                h("button", {
+                  type: "button",
+                  className: "icon-button explorer-action",
+                  title: "새 폴더",
+                  onClick: () => openFolderPicker("sidebar")
+                }, h(Icon, { name: "folder-plus" })),
+                h("div", { style: { position: "relative", display: "inline-flex" } },
+                  h("button", {
+                    type: "button",
+                    className: "icon-button explorer-action" + (trashOpen ? " active" : ""),
+                    title: "휴지통",
+                    onClick: trashOpen ? () => setTrashOpen(false) : openTrash
+                  }, "🗑"),
+                  trashItems && (trashItems.docs.length + trashItems.assets.length) > 0 && h("span", { className: "trash-badge" },
+                    trashItems.docs.length + trashItems.assets.length
+                  )),
+                h("div", { className: "sort-buttons" },
+                  h("button", {
+                    type: "button",
+                    className: "icon-button explorer-action" + (docSort === "asc" ? " active" : ""),
+                    title: "가나다순",
+                    onClick: () => setDocSort("asc")
+                  }, h(Icon, { name: "sort-asc" })),
+                  h("button", {
+                    type: "button",
+                    className: "icon-button explorer-action" + (docSort === "latest" ? " active" : ""),
+                    title: "최신순",
+                    onClick: () => setDocSort("latest")
+                  }, h(Icon, { name: "sort-latest" }))
+                )
+              ),
+              showFolderCreate && h("form", { className: "inline-form", onSubmit: createFolder },
+                h("input", {
+                  value: newFolderName,
+                  onChange: (event) => setNewFolderName(event.target.value),
+                  placeholder: "새 폴더명"
+                }),
+                h("div", { className: "inline-actions" },
+                  h("button", { type: "button", onClick: () => setShowFolderCreate(false) }, "취소"),
+                  h("button", { type: "submit", className: "primary" }, loading === "folder" ? "생성 중" : "생성")
+                )
+              )
+            ),
+            trashOpen
+              ? h("div", { className: "trash-panel" },
+                  h("div", { className: "trash-header" },
+                    h("span", null, "휴지통"),
+                    trashItems && (trashItems.docs.length + trashItems.assets.length) > 0 && h("button", {
+                      type: "button",
+                      className: "trash-empty-btn",
+                      onClick: emptyTrash,
+                      disabled: loading === "trash"
+                    }, "전체 비우기")
+                  ),
+                  !trashItems
+                    ? h("div", { className: "empty" }, "불러오는 중...")
+                    : trashItems.docs.length === 0 && trashItems.assets.length === 0
+                      ? h("div", { className: "empty" }, "휴지통이 비었습니다.")
+                      : h("div", null,
+                          trashItems.docs.length > 0 && h("div", { className: "trash-section" },
+                            h("div", { className: "trash-section-title" }, "문서"),
+                            trashItems.docs.map((item) => h("div", { key: item.source, className: "trash-item" },
+                              h("div", { className: "trash-item-info" },
+                                h("strong", null, item.title),
+                                h("span", null, `${trashDaysLeft(item.deleted_at)}일 후 영구삭제`)
+                              ),
+                              h("div", { className: "trash-item-actions" },
+                                h("button", { type: "button", onClick: () => restoreItem("doc", item.source), disabled: loading === "trash" }, "복원"),
+                                h("button", { type: "button", className: "danger-text", onClick: () => permanentDeleteItem("doc", item.source), disabled: loading === "trash" }, "영구삭제")
+                              )
+                            ))
+                          ),
+                          trashItems.assets.length > 0 && h("div", { className: "trash-section" },
+                            h("div", { className: "trash-section-title" }, "이미지"),
+                            trashItems.assets.map((item) => h("div", { key: item.path, className: "trash-item" },
+                              h("div", { className: "trash-item-info" },
+                                h("strong", null, item.path.split("/").pop()),
+                                h("span", null, `${trashDaysLeft(item.deleted_at)}일 후 영구삭제`)
+                              ),
+                              h("div", { className: "trash-item-actions" },
+                                h("button", { type: "button", onClick: () => restoreItem("asset", item.path), disabled: loading === "trash" }, "복원"),
+                                h("button", { type: "button", className: "danger-text", onClick: () => permanentDeleteItem("asset", item.path), disabled: loading === "trash" }, "영구삭제")
+                              )
+                            ))
+                          )
+                        )
+                )
+              : h("div", { className: "folder-list" },
+              groupedDocs.map(([folder, items]) => {
+                const isOpen = !!openFolders[folder] || !!docFilter.trim();
+                return h("div", { key: folder, className: "folder" },
+                  renamingFolder === folder
+                    ? h("form", { className: "folder-rename", onSubmit: renameFolder },
+                        h("input", {
+                          value: renameFolderName,
+                          onChange: (event) => setRenameFolderName(event.target.value),
+                          autoFocus: true
+                        }),
+                        h("button", { type: "button", onClick: () => setRenamingFolder("") }, "취소"),
+                        h("button", { type: "submit", className: "primary" }, "저장")
+                      )
+                    : h("div", {
+                        className: "folder-row" + (dragOverFolder === folder ? " drag-over" : ""),
+                        onDragOver: (event) => { event.preventDefault(); if (draggedFolderName && draggedFolderName !== folder) setDragOverFolder(folder); },
+                        onDragLeave: () => setDragOverFolder(""),
+                        onDrop: (event) => {
+                          event.preventDefault();
+                          if (draggedDocSource) moveDocToFolder(draggedDocSource, folder);
+                          else if (draggedFolderName) reorderFolder(folder);
+                        }
+                      },
+                        h("button", {
+                          className: "folder-toggle " + (isOpen ? "open" : ""),
+                          onClick: () => toggleFolder(folder)
+                        },
+                          h("span", null, isOpen ? "▾" : "▸"),
+                          h("strong", null, folder),
+                          h("span", null, items.length),
+                          pinnedFolders.has(folder) && h("span", { className: "pin-mark", title: "고정됨" }, "📌")
+                        ),
+                        h("button", {
+                          type: "button",
+                          className: "kebab-button",
+                          title: "폴더 작업",
+                          onClick: (event) => {
+                            event.stopPropagation();
+                            setExplorerMenu(explorerMenu && explorerMenu.type === "folder" && explorerMenu.id === folder ? null : { type: "folder", id: folder });
+                          }
+                        }, "..."),
+                        explorerMenu && explorerMenu.type === "folder" && explorerMenu.id === folder && h("div", { className: "explorer-menu" },
+                          h("button", { type: "button", onClick: () => { setExplorerMenu(null); togglePinFolder(folder); } },
+                            pinnedFolders.has(folder) ? "📌 고정 해제" : "📌 고정하기"
+                          ),
+                          h("button", { type: "button", onClick: () => { setExplorerMenu(null); startCreate(); setNewCustomer(folder); } }, "새 문서"),
+                          h("button", { type: "button", onClick: () => { setExplorerMenu(null); startRenameFolder(folder); } }, "이름 변경"),
+                          h("button", { type: "button", className: "danger-text", onClick: () => { setExplorerMenu(null); deleteFolder(folder); } }, "삭제")
+                        ),
+                        docSort !== "latest" && h("span", {
+                          className: "folder-drag-handle",
+                          draggable: true,
+                          title: "드래그하여 순서 변경",
+                          onDragStart: (event) => { event.stopPropagation(); setDraggedFolderName(folder); },
+                          onDragEnd: () => { setDraggedFolderName(""); setDragOverFolder(""); }
+                        }, "⋮")
+                      ),
+                  isOpen && h("div", { className: "doc-group" },
+                    items.map((item) => h("div", {
+                      key: item.source,
+                      className: "doc-item " + (selected === item.source ? "selected" : ""),
+                      role: "button",
+                      tabIndex: 0,
+                      draggable: true,
+                      onDragStart: (event) => {
+                        event.stopPropagation();
+                        setDraggedDocSource(item.source);
+                      },
+                      onDragEnd: () => setDraggedDocSource(""),
+                      onClick: () => openDoc(item.source),
+                      onKeyDown: (event) => { if (event.key === "Enter") openDoc(item.source); }
+                    },
+                      h("strong", null, item.title),
+                      h("span", null, item.source),
+                      h("i", {
+                        className: "doc-menu-trigger",
+                        onClick: (event) => {
+                          event.stopPropagation();
+                          setExplorerMenu(explorerMenu && explorerMenu.type === "doc" && explorerMenu.id === item.source ? null : { type: "doc", id: item.source });
+                        }
+                      }, "..."),
+                      explorerMenu && explorerMenu.type === "doc" && explorerMenu.id === item.source && h("div", { className: "explorer-menu doc-menu" },
+                        h("button", { type: "button", onClick: (event) => { event.stopPropagation(); setExplorerMenu(null); startRenameDocItem(item); } }, "이름 변경"),
+                        h("button", { type: "button", className: "danger-text", onClick: (event) => { event.stopPropagation(); setExplorerMenu(null); deleteDocItem(item); } }, "삭제")
+                      )
+                    ))
+                  )
+                );
+              }),
+              groupedDocs.length === 0 && h("div", { className: "empty" }, "자료가 없습니다.")
+            )
+          ),
+
+
+          h("div", {
+            className: "resizer left-resizer " + (draggingSide === "left" ? "dragging" : ""),
+            onPointerDown: (event) => startResize("left", event),
+            title: "왼쪽 사이드바 폭 조절"
+          }),
+
+          h("main", { className: "main" },
+            h("header", { className: "topbar" },
+              h("div", { className: "topbar-title" },
+                leftCollapsed && h("button", {
+                  type: "button",
+                  className: "icon-button",
+                  title: "왼쪽 사이드바 펼치기",
+                  onClick: () => setLeftCollapsed(false)
+                }, "›"),
+                h("strong", null, doc ? doc.title : "자료를 선택하세요")
+              ),
+              h("div", { className: "topbar-tools" },
+                h("span", null, doc ? doc.source : "왼쪽 자료 목록 또는 오른쪽 검색을 사용하세요"),
+                rightCollapsed && h("button", {
+                  type: "button",
+                  className: "icon-button",
+                  title: "오른쪽 사이드바 펼치기",
+                  onClick: () => setRightCollapsed(false)
+                }, "‹")
+              )
+            ),
+            h("section", { className: "reader" },
+              error && h("p", { className: "error" }, error),
+              chatAnswer && h("div", { className: "answer" }, h(Markdown, { text: chatAnswer })),
+              showCreate && h("section", { className: "create-panel" },
+                h("header", null, "새 문서 만들기"),
+                h("form", { className: "create-form", onSubmit: createDoc },
+                  h("div", { className: "form-grid" },
+                    h("button", {
+                      type: "button",
+                      className: "folder-select",
+                      onClick: () => openFolderPicker("new-doc")
+                    },
+                      h("span", null, "폴더"),
+                      h("strong", null, newCustomer || "선택")
+                    ),
+                    h("input", {
+                      value: newTitle,
+                      onChange: (event) => setNewTitle(event.target.value),
+                      placeholder: "문서 제목"
+                    })
+                  ),
+                  h("label", { className: "file-attach-zone",
+                    onDragOver: (e) => { e.preventDefault(); e.currentTarget.classList.add("drag-over"); },
+                    onDragLeave: (e) => e.currentTarget.classList.remove("drag-over"),
+                    onDrop: (e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("drag-over");
+                      const file = e.dataTransfer.files[0];
+                      if (file) {
+                        const form = new FormData();
+                        form.append("file", file);
+                        setLoading("convert");
+                        fetch("/api/convert", { method: "POST", body: form })
+                          .then((r) => r.json())
+                          .then((d) => {
+                            if (d.error) throw new Error(d.error);
+                            if (!newTitle.trim()) setNewTitle(d.title || "");
+                            setNewContent(d.content || "");
+                          })
+                          .catch((err) => setError(err.message))
+                          .finally(() => setLoading(""));
+                      }
+                    }
+                  },
+                    h("input", {
+                      type: "file",
+                      accept: ".md,.docx,.pdf",
+                      style: { display: "none" },
+                      onChange: (e) => {
+                        const file = e.target.files && e.target.files[0];
+                        if (!file) return;
+                        const form = new FormData();
+                        form.append("file", file);
+                        setLoading("convert");
+                        fetch("/api/convert", { method: "POST", body: form })
+                          .then((r) => r.json())
+                          .then((d) => {
+                            if (d.error) throw new Error(d.error);
+                            if (!newTitle.trim()) setNewTitle(d.title || "");
+                            setNewContent(d.content || "");
+                            e.target.value = "";
+                          })
+                          .catch((err) => setError(err.message))
+                          .finally(() => setLoading(""));
+                      }
+                    }),
+                    loading === "convert"
+                      ? h("span", { className: "file-attach-label" }, "변환 중…")
+                      : h("span", { className: "file-attach-label" },
+                          h("span", { className: "file-attach-icon" }, "📎"),
+                          "파일 첨부  ",
+                          h("span", { className: "file-attach-hint" }, ".md · .docx · .pdf — 클릭하거나 드래그")
+                        )
+                  ),
+                  h(RichEditor, {
+                    value: newContent,
+                    source: draftSource(newCustomer, newTitle),
+                    onChange: setNewContent,
+                    maxSizeBytes: meta ? meta.assetMaxSizeBytes : undefined,
+                    minHeight: "420px"
+                  }),
+                  h("div", { className: "create-actions" },
+                    h("button", { type: "button", onClick: () => setShowCreate(false) }, "취소"),
+                    h("button", { type: "submit", className: "primary" }, loading === "save" ? "저장 중" : "생성")
+                  )
+                )
+              ),
+              showRenameDoc && doc && h("section", { className: "create-panel" },
+                h("header", null, "파일명/폴더 수정"),
+                h("form", { className: "create-form", onSubmit: renameDoc },
+                  h("div", { className: "form-grid" },
+                    h("button", {
+                      type: "button",
+                      className: "folder-select",
+                      onClick: () => openFolderPicker("rename-doc")
+                    },
+                      h("span", null, "폴더"),
+                      h("strong", null, renameDocFolder || "선택")
+                    ),
+                    h("input", {
+                      value: renameDocTitle,
+                      onChange: (event) => setRenameDocTitle(event.target.value),
+                      placeholder: "파일명"
+                    })
+                  ),
+                  h("div", { className: "create-actions" },
+                    h("button", { type: "button", onClick: () => setShowRenameDoc(false) }, "취소"),
+                    h("button", { type: "submit", className: "primary" }, loading === "rename" ? "저장 중" : "저장")
+                  )
+                )
+              ),
+              doc ? h("article", { className: "doc-view" },
+                h("div", { className: "doc-header" },
+                  h("div", { className: "doc-header-row" },
+                    h("div", null,
+                      h("div", { className: "path" }, doc.source),
+                      h("h2", null, doc.title)
+                    ),
+                    h("div", { className: "doc-actions" },
+                      editMode ? [
+                        h("button", { key: "cancel", type: "button", onClick: () => { setDraft(doc.content || ""); setEditMode(false); } }, "취소"),
+                        h("button", { key: "save", type: "button", className: "primary", onClick: saveDoc }, loading === "save" ? "저장 중" : "저장")
+                      ] : [
+                        h("button", { key: "rename", type: "button", onClick: startRenameDoc }, "이름 변경"),
+                        h("button", { key: "edit", type: "button", onClick: () => { setDraft(doc.content || ""); setEditMode(true); } }, "수정"),
+                        h("button", { key: "delete", type: "button", className: "danger", onClick: deleteDoc }, loading === "delete" ? "삭제 중" : "삭제")
+                      ]
+                    )
+                  )
+                ),
+                editMode
+                  ? h(RichEditor, {
+                      value: draft,
+                      source: doc.source,
+                      onChange: setDraft,
+                      minHeight: "calc(100vh - 230px)",
+                      maxSizeBytes: meta ? meta.assetMaxSizeBytes : undefined
+                    })
+                  : h("div", null,
+                      h("div", { className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source })),
+                      (() => {
+                        const imgs = extractDocImages(doc.source, doc.content || "");
+                        if (!imgs.length) return null;
+                        return h("div", { className: "doc-images" },
+                          h("div", { className: "doc-images-title" }, "첨부 이미지"),
+                          h("div", { className: "doc-images-grid" },
+                            imgs.map((img) => h("div", { key: img.dbPath, className: "doc-image-item" },
+                              h("img", { src: img.url, alt: img.alt, loading: "lazy" }),
+                              h("div", { className: "doc-image-footer" },
+                                h("span", { title: img.rawPath }, img.rawPath.split("/").pop()),
+                                h("button", {
+                                  type: "button",
+                                  className: "img-delete-btn",
+                                  title: "이미지 휴지통으로 이동",
+                                  onClick: () => deleteAsset(img.dbPath)
+                                }, "×")
+                              )
+                            ))
+                          )
+                        );
+                      })()
+                    )
+              ) : h("div", { className: "reader-empty" },
+                h("div", { className: "empty" }, loading === "doc" ? "자료를 여는 중입니다." : "왼쪽에서 자료를 선택하거나 오른쪽에서 검색하세요.")
+              )
+            )
+          ),
+
+          h("div", {
+            className: "resizer right-resizer " + (draggingSide === "right" ? "dragging" : ""),
+            onPointerDown: (event) => startResize("right", event),
+            title: "오른쪽 사이드바 폭 조절"
+          }),
+
+          h("aside", { className: "right-sidebar" },
+            h("div", { className: "tool-head" },
+              h("div", { className: "panel-title-row" },
+                h("div", { className: "panel-actions" },
+                  h("button", {
+                    type: "button",
+                    className: "icon-button",
+                    title: "오른쪽 사이드바 접기",
+                    onClick: () => setRightCollapsed(true)
+                  }, "›")
+                ),
+                h("h2", null, "검색 / 질문")
+              ),
+              h("p", null, "검색 결과에서 자료를 열거나 문서 기반 답변을 확인")
+            ),
+            h("div", { className: "tool-tabs" },
+              h("button", {
+                type: "button",
+                className: activeTool === "search" ? "active" : "",
+                onClick: () => setActiveTool("search")
+              }, "검색"),
+              h("button", {
+                type: "button",
+                className: activeTool === "question" ? "active" : "",
+                onClick: () => setActiveTool("question")
+              }, "AI 질문")
+            ),
+            h("div", { className: "tool-panel" },
+              activeTool === "search" ? [
+                h("form", { key: "search-form", className: "tool-form", onSubmit: runSearch },
+                  h("div", { className: "search-row" },
+                    h("input", {
+                      value: searchQuery,
+                      onChange: (event) => setSearchQuery(event.target.value),
+                      placeholder: "궁금하신 내용을 입력하세요"
+                    }),
+                    h("button", { className: "primary", type: "submit" }, loading === "search" ? "중" : "검색")
+                  ),
+                  h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
+                    [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "참고자료 : " + n + "개"))
+                  )
+                ),
+                search && h("div", { key: "search-answer", className: "answer" }, h(Markdown, { text: search.answer })),
+                search && h("div", { key: "search-results" },
+                  h("div", { className: "section-title" }, "검색 결과"),
+                  search.results.map((item) => h("button", {
+                    key: item.source + item.title,
+                    className: "result-item",
+                    onClick: () => openDoc(item.source)
+                  },
+                    h("strong", null, item.title),
+                    h("p", null, item.source + " / score " + item.score),
+                    h("p", null, item.snippet)
+                  ))
+                )
+              ] : [
+                h("form", { key: "question-form", className: "tool-form", onSubmit: askChat },
+                  h("textarea", {
+                    rows: 5,
+                    value: chatQuery,
+                    onChange: (event) => setChatQuery(event.target.value),
+                    placeholder: "문서 기반으로 질문하기"
+                  }),
+                  h("div", { className: "ap-selector-row" },
+                    h("select", {
+                      value: activeProviderId,
+                      onChange: (e) => selectProvider(e.target.value),
+                      style: { flex: 1 }
+                    },
+                      !activeProviderId && h("option", { value: "" }, "— API 선택 —"),
+                      apiProviders.map((p) => h("option", { key: p.id, value: p.id }, p.name))
+                    ),
+                    h("button", {
+                      type: "button",
+                      className: "icon-button explorer-action" + (apiSettingsOpen ? " active" : ""),
+                      title: "API 관리",
+                      onClick: () => setApiSettingsOpen((v) => !v)
+                    }, "⚙")
+                  ),
+                  h("div", { className: "toolbar" },
+                    h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
+                      [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "참고자료 : " + n + "개"))
+                    ),
+                    h("label", { className: "toggle" },
+                      h("input", { type: "checkbox", checked: useLlm, onChange: (event) => setUseLlm(event.target.checked) }),
+                      "LLM 답변"
+                    )
+                  ),
+                  h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변 중" : "질문하기")
+                ),
+                chatAnswer && h("div", { key: "question-answer", className: "answer" }, h(Markdown, { text: chatAnswer }))
+              ]
+            )
+          ),
+
+          h("nav", { className: "side-rail right-rail", "aria-label": "오른쪽 메뉴" },
+            h("button", {
+              type: "button",
+              className: "rail-button " + (!rightCollapsed ? "active" : ""),
+              title: rightCollapsed ? "검색/질문 펼치기" : "검색/질문 접기",
+              onClick: () => setRightCollapsed((value) => !value)
+            }, "⌕"),
+            h("button", {
+              type: "button",
+              className: "rail-button",
+              title: "검색/질문 폭 초기화",
+              onClick: () => setRightWidth(360)
+            }, "↔"),
+            h("div", { className: "rail-spacer" })
+          )
+        );
+      }
+
