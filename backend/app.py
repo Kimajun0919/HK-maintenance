@@ -538,18 +538,18 @@ def _db_asset_record_for_request(source: str, asset_path: str) -> AssetRecord | 
 
 
 def docs_index() -> list[dict[str, str]]:
-    items: list[dict[str, str]] = []
-    for record in _doc_records():
-        name = Path(record.source).name
-        if name in {"SIMPLIFY_CHANGELOG.md", "SIMPLIFY_VALIDATION_REPORT.md"}:
-            continue
-        items.append({"source": record.source, "title": record.title, "customer": record.customer, "updatedAt": record.updated_at})
-    return items
+    return [
+        {"source": record.source, "title": record.title, "customer": record.customer, "updatedAt": record.updated_at}
+        for record in _doc_records()
+        if not _is_system_source(record.source)
+    ]
 
 
 def folders_index() -> list[dict[str, str | int]]:
     records = _db_folder_records() if SUPABASE_ENABLED else _file_folder_records()
-    doc_counts: Counter[str] = Counter(record.customer for record in _doc_records())
+    doc_counts: Counter[str] = Counter(
+        record.customer for record in _doc_records() if not _is_system_source(record.source)
+    )
     seen = {record.name for record in records}
     for folder in sorted(doc_counts):
         if folder and folder not in seen:
