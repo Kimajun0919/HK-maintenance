@@ -294,6 +294,21 @@ const h = React.createElement;
           className: "app " + (leftCollapsed ? "left-collapsed " : "") + (rightCollapsed ? "right-collapsed" : ""),
           style: appStyle
         },
+          h("nav", { className: "side-rail left-rail", "aria-label": "왼쪽 메뉴" },
+            h("button", {
+              type: "button",
+              className: "rail-button " + (!leftCollapsed ? "active" : ""),
+              title: leftCollapsed ? "자료 목록 펼치기" : "자료 목록 접기",
+              onClick: () => setLeftCollapsed((value) => !value)
+            }, "☰"),
+            h("button", {
+              type: "button",
+              className: "rail-button",
+              title: "자료 목록 폭 초기화",
+              onClick: () => setLeftWidth(320)
+            }, "↔"),
+            h("div", { className: "rail-spacer" })
+          ),
           h("aside", { className: "left-sidebar" },
             h("div", { className: "brand" },
               h("div", { className: "panel-title-row" },
@@ -489,6 +504,22 @@ const h = React.createElement;
                 chatAnswer && h("div", { key: "question-answer", className: "answer" }, h(Markdown, { text: chatAnswer }))
               ]
             )
+          ),
+
+          h("nav", { className: "side-rail right-rail", "aria-label": "오른쪽 메뉴" },
+            h("button", {
+              type: "button",
+              className: "rail-button " + (!rightCollapsed ? "active" : ""),
+              title: rightCollapsed ? "검색/질문 펼치기" : "검색/질문 접기",
+              onClick: () => setRightCollapsed((value) => !value)
+            }, "⌕"),
+            h("button", {
+              type: "button",
+              className: "rail-button",
+              title: "검색/질문 폭 초기화",
+              onClick: () => setRightWidth(360)
+            }, "↔"),
+            h("div", { className: "rail-spacer" })
           )
         );
       }
