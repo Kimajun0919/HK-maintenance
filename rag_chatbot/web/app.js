@@ -305,6 +305,8 @@ const h = React.createElement;
         const [fmRenameValue, setFmRenameValue] = React.useState("");
         const [fmCreating, setFmCreating] = React.useState(false);
         const [fmNewName, setFmNewName] = React.useState("");
+        const [fmDragFrom, setFmDragFrom] = React.useState("");
+        const [fmDragOver, setFmDragOver] = React.useState("");
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -693,6 +695,19 @@ const h = React.createElement;
             .finally(() => setLoading(""));
         };
 
+        const fmReorder = (targetFolder) => {
+          setFmDragOver("");
+          if (!fmDragFrom || fmDragFrom === targetFolder) { setFmDragFrom(""); return; }
+          const names = groupedDocs.map(([f]) => f);
+          const from = names.indexOf(fmDragFrom);
+          const to = names.indexOf(targetFolder);
+          if (from < 0 || to < 0) { setFmDragFrom(""); return; }
+          names.splice(to, 0, names.splice(from, 1)[0]);
+          setFolderOrder(names);
+          localStorage.setItem("hk.folderOrder", JSON.stringify(names));
+          setFmDragFrom("");
+        };
+
         const runSearch = (event) => {
           event && event.preventDefault();
           const term = searchQuery.trim();
@@ -955,7 +970,16 @@ const h = React.createElement;
                   const isPinned = pinnedFolders.has(folderName);
                   const isRenaming = fmRenaming === folderName;
                   const docCount = items.length;
-                  return h("div", { key: folderName, className: "fm-card" + (isPinned ? " fm-pinned" : "") },
+                  return h("div", {
+                    key: folderName,
+                    className: "fm-card" + (isPinned ? " fm-pinned" : "") + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : ""),
+                    draggable: !isRenaming,
+                    onDragStart: () => setFmDragFrom(folderName),
+                    onDragEnd: () => { setFmDragFrom(""); setFmDragOver(""); },
+                    onDragOver: (e) => { e.preventDefault(); if (fmDragFrom && fmDragFrom !== folderName) setFmDragOver(folderName); },
+                    onDragLeave: () => setFmDragOver(""),
+                    onDrop: (e) => { e.preventDefault(); fmReorder(folderName); }
+                  },
                     h("div", { className: "fm-card-icon" },
                       h("svg", { width: 48, height: 48, viewBox: "0 0 24 24", fill: isPinned ? "#f59e0b" : "#60a5fa", stroke: isPinned ? "#d97706" : "#3b82f6", strokeWidth: 1, "aria-hidden": "true" },
                         h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })

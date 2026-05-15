@@ -860,9 +860,16 @@
       .fm-card:hover {
         background: #f1f5f9;
         border-color: var(--line);
+        cursor: grab;
       }
       .fm-card.fm-pinned { background: #fefce8; }
       .fm-card.fm-pinned:hover { background: #fef9c3; border-color: #fbbf24; }
+      .fm-card.fm-dragging { opacity: 0.4; }
+      .fm-card.fm-drag-over {
+        background: var(--soft);
+        border-color: var(--accent);
+        border-style: dashed;
+      }
       .fm-card-icon {
         position: relative;
         width: 48px;
