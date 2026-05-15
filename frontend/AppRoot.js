@@ -13,6 +13,7 @@ export function App() {
         const [openFolders, setOpenFolders] = React.useState({});
         const [selected, setSelected] = React.useState("");
         const [doc, setDoc] = React.useState(null);
+        const [openDocs, setOpenDocs] = React.useState([]);
         const [editMode, setEditMode] = React.useState(false);
         const [draft, setDraft] = React.useState("");
         const [showCreate, setShowCreate] = React.useState(false);
@@ -200,10 +201,17 @@ export function App() {
           setSelected(source);
           setEditMode(false);
           setShowCreate(false);
+          setShowRenameDoc(false);
           setLoading("doc");
           setError("");
           api("/api/doc?source=" + encodeURIComponent(source))
             .then((data) => {
+              setOpenDocs((prev) => {
+                const exists = prev.some((item) => item.source === data.source);
+                return exists
+                  ? prev.map((item) => item.source === data.source ? data : item)
+                  : [...prev, data];
+              });
               setDoc(data);
               setDraft(data.content || "");
             })
@@ -211,10 +219,29 @@ export function App() {
             .finally(() => setLoading(""));
         };
 
-        const closeDoc = () => {
-          setSelected("");
-          setDoc(null);
-          setDraft("");
+        const switchDocWindow = (source) => {
+          const target = openDocs.find((item) => item.source === source);
+          if (!target) {
+            openDoc(source);
+            return;
+          }
+          setSelected(target.source);
+          setDoc(target);
+          setDraft(target.content || "");
+          setEditMode(false);
+          setShowCreate(false);
+          setShowRenameDoc(false);
+        };
+
+        const closeDoc = (source = doc && doc.source) => {
+          if (!source) return;
+          const remaining = openDocs.filter((item) => item.source !== source);
+          setOpenDocs(remaining);
+          if (!doc || doc.source !== source) return;
+          const next = remaining[remaining.length - 1] || null;
+          setSelected(next ? next.source : "");
+          setDoc(next);
+          setDraft(next ? next.content || "" : "");
           setEditMode(false);
           setShowRenameDoc(false);
           setRenameDocFolder("");
@@ -360,6 +387,7 @@ export function App() {
             }),
           })
             .then((data) => {
+              setOpenDocs((prev) => [...prev.filter((item) => item.source !== doc.source && item.source !== data.source), data]);
               setDoc(data);
               setDraft(data.content || "");
               setSelected(data.source);
@@ -383,6 +411,7 @@ export function App() {
             body: JSON.stringify({ source, folder, title: item.title }),
           })
             .then((data) => {
+              setOpenDocs((prev) => prev.map((entry) => entry.source === source ? data : entry));
               if (doc && doc.source === source) {
                 setDoc(data);
                 setDraft(data.content || "");
@@ -594,6 +623,7 @@ export function App() {
           })
             .then((data) => {
               setShowCreate(false);
+              setOpenDocs((prev) => [...prev.filter((item) => item.source !== data.source), data]);
               setDoc(data);
               setDraft(data.content || "");
               setSelected(data.source);
@@ -616,6 +646,7 @@ export function App() {
             body: JSON.stringify({ source: doc.source, content: draft }),
           })
             .then((data) => {
+              setOpenDocs((prev) => prev.map((item) => item.source === data.source ? data : item));
               setDoc(data);
               setDraft(data.content || "");
               setEditMode(false);
@@ -644,10 +675,13 @@ export function App() {
             body: JSON.stringify({ source: item.source }),
           })
             .then(() => {
+              const remaining = openDocs.filter((entry) => entry.source !== item.source);
+              setOpenDocs(remaining);
               if (doc && doc.source === item.source) {
-                setDoc(null);
-                setDraft("");
-                setSelected("");
+                const next = remaining[remaining.length - 1] || null;
+                setDoc(next);
+                setDraft(next ? next.content || "" : "");
+                setSelected(next ? next.source : "");
                 setEditMode(false);
               }
               return Promise.all([loadDocs(), refreshMeta(), loadTrash()]);
@@ -667,9 +701,12 @@ export function App() {
             body: JSON.stringify({ source: doc.source }),
           })
             .then(() => {
-              setDoc(null);
-              setDraft("");
-              setSelected("");
+              const remaining = openDocs.filter((entry) => entry.source !== doc.source);
+              const next = remaining[remaining.length - 1] || null;
+              setOpenDocs(remaining);
+              setDoc(next);
+              setDraft(next ? next.content || "" : "");
+              setSelected(next ? next.source : "");
               setEditMode(false);
               return Promise.all([loadDocs(), refreshMeta(), loadTrash()]);
             })
@@ -1289,7 +1326,31 @@ export function App() {
             ),
             h("section", { className: "reader" },
               error && h("p", { className: "error" }, error),
-              chatAnswer && h("div", { className: "answer" }, h(Markdown, { text: chatAnswer })),
+              openDocs.length > 0 && h("div", { className: "doc-window-bar" },
+                openDocs.map((item) => h("div", {
+                  key: item.source,
+                  className: "doc-window-tab " + (doc && doc.source === item.source ? "active" : "")
+                },
+                  h("button", {
+                    type: "button",
+                    className: "doc-window-main",
+                    title: item.source,
+                    onClick: () => switchDocWindow(item.source)
+                  },
+                    h("span", { className: "doc-window-title" }, item.title || item.source),
+                    h("span", { className: "doc-window-path" }, item.source)
+                  ),
+                  h("button", {
+                    type: "button",
+                    className: "doc-window-close",
+                    title: "창 닫기",
+                    onClick: (event) => {
+                      event.stopPropagation();
+                      closeDoc(item.source);
+                    }
+                  }, "×")
+                ))
+              ),
               showCreate && h("section", { className: "create-panel" },
                 h("header", null, "새 문서 만들기"),
                 h("form", { className: "create-form", onSubmit: createDoc },

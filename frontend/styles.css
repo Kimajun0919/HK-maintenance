@@ -639,6 +639,65 @@
         overflow: auto;
         padding: 22px;
       }
+      .doc-window-bar {
+        max-width: 980px;
+        margin: 0 auto 10px;
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+      .doc-window-tab {
+        flex: 0 0 min(260px, 72vw);
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 30px;
+        align-items: stretch;
+        border: 1px solid var(--line);
+        border-radius: 8px 8px 0 0;
+        background: #f8fafc;
+        overflow: hidden;
+      }
+      .doc-window-tab.active {
+        background: #fff;
+        border-color: #94a3b8;
+        box-shadow: 0 -1px 0 #94a3b8 inset;
+      }
+      .doc-window-main,
+      .doc-window-close {
+        border: 0;
+        background: transparent;
+        min-width: 0;
+      }
+      .doc-window-main {
+        display: block;
+        text-align: left;
+        padding: 7px 8px;
+      }
+      .doc-window-title,
+      .doc-window-path {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .doc-window-title {
+        font-weight: 700;
+        font-size: 13px;
+      }
+      .doc-window-path {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .doc-window-close {
+        color: var(--muted);
+        font-size: 18px;
+      }
+      .doc-window-close:hover {
+        background: #fee2e2;
+        color: #991b1b;
+      }
       .doc-view {
         max-width: 980px;
         margin: 0 auto;
