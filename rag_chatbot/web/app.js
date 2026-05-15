@@ -295,9 +295,13 @@ const h = React.createElement;
         const [chatQuery, setChatQuery] = React.useState("");
         const [chatAnswer, setChatAnswer] = React.useState("");
         const [topK, setTopK] = React.useState(5);
-        const [answerProvider, setAnswerProvider] = React.useState("local");
-        const [claudeApiKey, setClaudeApiKey] = React.useState("");
-        const [claudeModel, setClaudeModel] = React.useState("claude-sonnet-4-5");
+        const [apiProviders, setApiProviders] = React.useState(() => {
+          try { return JSON.parse(localStorage.getItem("hk.apiProviders") || "[]"); } catch { return []; }
+        });
+        const [activeProviderId, setActiveProviderId] = React.useState(() => localStorage.getItem("hk.activeProviderId") || "quick");
+        const [apiSettingsOpen, setApiSettingsOpen] = React.useState(false);
+        const [apEditId, setApEditId] = React.useState(null);
+        const [apForm, setApForm] = React.useState({});
         const [useLlm, setUseLlm] = React.useState(false);
         const [leftWidth, setLeftWidth] = React.useState(() => Number(localStorage.getItem("hk.leftWidth")) || 320);
         const [rightWidth, setRightWidth] = React.useState(() => Number(localStorage.getItem("hk.rightWidth")) || 360);
@@ -668,6 +672,48 @@ const h = React.createElement;
           });
         };
 
+        const BUILTIN_PROVIDERS = [
+          { id: "quick", name: "빠른 답변 (LLM 없음)", type: "builtin" },
+          { id: "local", name: "로컬 LLM", type: "builtin" },
+        ];
+
+        const saveProviders = (list) => {
+          setApiProviders(list);
+          localStorage.setItem("hk.apiProviders", JSON.stringify(list));
+        };
+
+        const selectProvider = (id) => {
+          setActiveProviderId(id);
+          localStorage.setItem("hk.activeProviderId", id);
+        };
+
+        const apOpenNew = () => {
+          setApEditId("__new__");
+          setApForm({ name: "", type: "openai", apiKey: "", baseUrl: "", model: "" });
+        };
+
+        const apOpenEdit = (p) => {
+          setApEditId(p.id);
+          setApForm({ name: p.name, type: p.type, apiKey: p.apiKey || "", baseUrl: p.baseUrl || "", model: p.model || "" });
+        };
+
+        const apSave = () => {
+          if (!apForm.name.trim()) return;
+          if (apEditId === "__new__") {
+            const newP = { ...apForm, id: String(Date.now()) };
+            saveProviders([...apiProviders, newP]);
+          } else {
+            saveProviders(apiProviders.map((p) => p.id === apEditId ? { ...p, ...apForm } : p));
+          }
+          setApEditId(null);
+        };
+
+        const apDelete = (id) => {
+          if (!confirm("이 API 설정을 삭제합니까?")) return;
+          saveProviders(apiProviders.filter((p) => p.id !== id));
+          if (activeProviderId === id) selectProvider("quick");
+        };
+
         const fmSubmitRename = (event) => {
           event && event.preventDefault();
           const newName = fmRenameValue.trim();
@@ -752,9 +798,13 @@ const h = React.createElement;
             body: JSON.stringify({
               query: term,
               topK,
-              provider: answerProvider,
-              apiKey: answerProvider === "claude" ? claudeApiKey : "",
-              model: answerProvider === "claude" ? claudeModel : "",
+              ...(() => {
+                const builtins = { local: { provider: "local" }, quick: { provider: "quick" } };
+                if (builtins[activeProviderId]) return builtins[activeProviderId];
+                const p = apiProviders.find((x) => x.id === activeProviderId);
+                if (!p) return { provider: "quick" };
+                return { provider: p.type, apiKey: p.apiKey || "", model: p.model || "", baseUrl: p.baseUrl || "" };
+              })(),
             }),
           })
             .then((data) => setChatAnswer(data.answer || ""))
@@ -1119,6 +1169,71 @@ const h = React.createElement;
             )
           ),
 
+          apiSettingsOpen && h("div", { className: "modal-backdrop", onMouseDown: () => { setApiSettingsOpen(false); setApEditId(null); } },
+            h("section", { className: "api-modal", onMouseDown: (e) => e.stopPropagation() },
+              h("header", { className: "fm-header" },
+                h("div", { className: "fm-title" }, h("strong", null, "API 관리")),
+                h("button", { type: "button", className: "icon-button", onClick: () => { setApiSettingsOpen(false); setApEditId(null); } }, "×")
+              ),
+
+              apEditId
+                ? h("div", { className: "ap-form-panel" },
+                    h("h3", { className: "ap-form-title" }, apEditId === "__new__" ? "새 API 추가" : "API 편집"),
+                    h("label", null, "이름",
+                      h("input", { value: apForm.name, placeholder: "예: GPT-4o, Groq Llama, Ollama …", onChange: (e) => setApForm((f) => ({ ...f, name: e.target.value })) })
+                    ),
+                    h("label", null, "유형",
+                      h("select", { value: apForm.type, onChange: (e) => setApForm((f) => ({ ...f, type: e.target.value })) },
+                        h("option", { value: "openai" }, "OpenAI-compatible (OpenAI / Groq / Ollama / LM Studio …)"),
+                        h("option", { value: "claude" }, "Claude (Anthropic)")
+                      )
+                    ),
+                    apForm.type === "openai" && h("label", null, "Base URL",
+                      h("input", { value: apForm.baseUrl, placeholder: "https://api.openai.com/v1", onChange: (e) => setApForm((f) => ({ ...f, baseUrl: e.target.value })) })
+                    ),
+                    h("label", null, "API Key",
+                      h("input", { type: "password", value: apForm.apiKey, placeholder: apForm.type === "openai" ? "sk-… (없으면 비워둠)" : "sk-ant-…", onChange: (e) => setApForm((f) => ({ ...f, apiKey: e.target.value })) })
+                    ),
+                    h("label", null, "모델",
+                      h("input", { value: apForm.model, placeholder: apForm.type === "claude" ? "claude-sonnet-4-5" : "gpt-4o-mini", onChange: (e) => setApForm((f) => ({ ...f, model: e.target.value })) })
+                    ),
+                    apForm.type === "openai" && h("p", { className: "ap-hint" }, "💡 Ollama: http://localhost:11434/v1 | Groq: https://api.groq.com/openai/v1 | LM Studio: http://localhost:1234/v1"),
+                    h("div", { className: "ap-form-actions" },
+                      h("button", { type: "button", onClick: () => setApEditId(null) }, "취소"),
+                      h("button", { type: "button", className: "primary", onClick: apSave }, "저장")
+                    )
+                  )
+                : h("div", { className: "ap-list" },
+                    h("div", { className: "ap-section-title" }, "기본 제공"),
+                    BUILTIN_PROVIDERS.map((p) =>
+                      h("div", { key: p.id, className: "ap-row" + (activeProviderId === p.id ? " ap-active" : ""), onClick: () => selectProvider(p.id) },
+                        h("div", { className: "ap-row-info" },
+                          h("span", { className: "ap-name" }, p.name),
+                          activeProviderId === p.id && h("span", { className: "ap-badge" }, "사용 중")
+                        )
+                      )
+                    ),
+                    h("div", { className: "ap-section-title", style: { marginTop: "12px" } }, "사용자 API"),
+                    apiProviders.length === 0 && h("p", { className: "ap-empty" }, "등록된 API가 없습니다."),
+                    apiProviders.map((p) =>
+                      h("div", { key: p.id, className: "ap-row" + (activeProviderId === p.id ? " ap-active" : ""), onClick: () => selectProvider(p.id) },
+                        h("div", { className: "ap-row-info" },
+                          h("span", { className: "ap-name" }, p.name),
+                          h("span", { className: "ap-type" }, p.type === "claude" ? "Claude" : (p.baseUrl || "OpenAI")),
+                          h("span", { className: "ap-model" }, p.model),
+                          activeProviderId === p.id && h("span", { className: "ap-badge" }, "사용 중")
+                        ),
+                        h("div", { className: "ap-row-actions", onClick: (e) => e.stopPropagation() },
+                          h("button", { type: "button", onClick: () => apOpenEdit(p) }, "편집"),
+                          h("button", { type: "button", className: "danger-text", onClick: () => apDelete(p.id) }, "삭제")
+                        )
+                      )
+                    ),
+                    h("button", { type: "button", className: "fm-new-btn", style: { marginTop: "12px" }, onClick: apOpenNew }, "+ API 추가")
+                  )
+            )
+          ),
+
           folderPickerMode && h("div", { className: "modal-backdrop", onMouseDown: closeFolderPicker },
             h("section", { className: "folder-modal", onMouseDown: (event) => event.stopPropagation() },
               h("header", null,
@@ -1187,7 +1302,7 @@ const h = React.createElement;
               h("input", {
                 value: docFilter,
                 onChange: (event) => setDocFilter(event.target.value),
-                placeholder: "자료 목록 필터"
+                placeholder: "검색"
               }),
               h("div", { className: "explorer-action-row" },
                 h("button", {
@@ -1605,24 +1720,23 @@ const h = React.createElement;
                     onChange: (event) => setChatQuery(event.target.value),
                     placeholder: "문서 기반으로 질문하기"
                   }),
-                  h("select", { value: answerProvider, onChange: (event) => setAnswerProvider(event.target.value) },
-                    h("option", { value: "local" }, "로컬 LLM (기본)"),
-                    h("option", { value: "quick" }, "문서 기반 빠른 답변"),
-                    h("option", { value: "claude" }, "Claude API")
-                  ),
-                  answerProvider === "claude" && h("input", {
-                    type: "password",
-                    value: claudeApiKey,
-                    onChange: (event) => setClaudeApiKey(event.target.value),
-                    placeholder: "Anthropic API Key (저장하지 않음)"
-                  }),
-                  answerProvider === "claude" && h("select", {
-                    value: claudeModel,
-                    onChange: (event) => setClaudeModel(event.target.value)
-                  },
-                    h("option", { value: "claude-sonnet-4-5" }, "Claude Sonnet 4.5"),
-                    h("option", { value: "claude-opus-4-1-20250805" }, "Claude Opus 4.1"),
-                    h("option", { value: "claude-3-5-haiku-20241022" }, "Claude 3.5 Haiku")
+                  h("div", { className: "ap-selector-row" },
+                    h("select", {
+                      value: activeProviderId,
+                      onChange: (e) => selectProvider(e.target.value),
+                      style: { flex: 1 }
+                    },
+                      BUILTIN_PROVIDERS.map((p) => h("option", { key: p.id, value: p.id }, p.name)),
+                      apiProviders.length > 0 && h("optgroup", { label: "사용자 API" },
+                        apiProviders.map((p) => h("option", { key: p.id, value: p.id }, p.name))
+                      )
+                    ),
+                    h("button", {
+                      type: "button",
+                      className: "icon-button explorer-action" + (apiSettingsOpen ? " active" : ""),
+                      title: "API 관리",
+                      onClick: () => setApiSettingsOpen((v) => !v)
+                    }, "⚙")
                   ),
                   h("div", { className: "toolbar" },
                     h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },

@@ -1012,6 +1012,60 @@ def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
     return f"{generated}\n\n---\n참고 문서:\n{sources}"
 
 
+def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str, model: str) -> str:
+    base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
+    model = (model or "gpt-4o-mini").strip()
+
+    results, context = retrieve(query, top_k)
+    if not context:
+        return "관련 문서를 찾지 못했습니다. 고객사명, 작업명, 서버/계정/경로 같은 단어를 포함해 다시 질문해 주세요."
+
+    sources = "\n".join(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}" for chunk, score in results)
+    prompt = f"""질문:
+{query}
+
+문서 근거:
+{context}
+
+답변 조건:
+- 반드시 위 문서 근거 안의 내용만 사용하세요.
+- 계정, 경로, 서버, 작업 절차, 주의사항은 원문 값을 임의로 바꾸지 마세요.
+- 근거에 없으면 "확인 필요"라고 답하세요.
+- 답변 마지막에 참고 문서 파일명을 bullet로 정리하세요.
+"""
+    payload = {
+        "model": model,
+        "max_tokens": MAX_NEW_TOKENS,
+        "messages": [
+            {"role": "system", "content": "당신은 HK 유지보수 문서 RAG 도우미입니다. 제공된 문서 근거만 바탕으로 한국어로 간결하고 정확하게 답변합니다."},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    headers: dict[str, str] = {"content-type": "application/json"}
+    if api_key.strip():
+        headers["authorization"] = f"Bearer {api_key.strip()}"
+    request = urllib.request.Request(
+        f"{base_url}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return f"API 오류({exc.code}): {body[:700]}"
+    except Exception as exc:
+        return f"API 호출 실패: {exc}"
+
+    choices = data.get("choices", [])
+    generated = choices[0].get("message", {}).get("content", "").strip() if choices else ""
+    if not generated:
+        generated = source_based_answer(query, results)
+    return f"{generated}\n\n---\n참고 문서:\n{sources}"
+
+
 def build_demo():
     import gradio as gr
 
@@ -1800,6 +1854,14 @@ def create_api_app():
                 top_k,
                 str(payload.get("apiKey", "")),
                 str(payload.get("model", DEFAULT_CLAUDE_MODEL)),
+            )
+        elif provider == "openai":
+            response = openai_compatible_answer(
+                query,
+                top_k,
+                str(payload.get("apiKey", "")),
+                str(payload.get("baseUrl", "https://api.openai.com/v1")),
+                str(payload.get("model", "gpt-4o-mini")),
             )
         elif provider == "quick":
             response = immediate_answer(query, top_k)
