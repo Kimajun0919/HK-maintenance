@@ -416,18 +416,15 @@
         align-items: center;
         justify-content: center;
         font-size: 14px;
-        color: transparent;
+        color: var(--muted);
         cursor: grab;
         border-radius: 4px;
         user-select: none;
         letter-spacing: -1px;
         transition: color 0.1s, background 0.1s;
       }
-      .folder-row:hover .folder-drag-handle {
-        color: var(--muted);
-      }
       .folder-drag-handle:hover {
-        color: var(--text) !important;
+        color: var(--text);
         background: #e2e8f0;
       }
       .folder-drag-handle:active {
