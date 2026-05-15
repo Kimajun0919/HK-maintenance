@@ -298,7 +298,7 @@ const h = React.createElement;
         const [apiProviders, setApiProviders] = React.useState(() => {
           try { return JSON.parse(localStorage.getItem("hk.apiProviders") || "[]"); } catch { return []; }
         });
-        const [activeProviderId, setActiveProviderId] = React.useState(() => localStorage.getItem("hk.activeProviderId") || "quick");
+        const [activeProviderId, setActiveProviderId] = React.useState(() => localStorage.getItem("hk.activeProviderId") || "");
         const [apiSettingsOpen, setApiSettingsOpen] = React.useState(false);
         const [apEditId, setApEditId] = React.useState(null);
         const [apForm, setApForm] = React.useState({});
@@ -672,10 +672,6 @@ const h = React.createElement;
           });
         };
 
-        const BUILTIN_PROVIDERS = [
-          { id: "quick", name: "빠른 답변 (LLM 없음)", type: "builtin" },
-          { id: "local", name: "로컬 LLM", type: "builtin" },
-        ];
 
         const saveProviders = (list) => {
           setApiProviders(list);
@@ -711,7 +707,7 @@ const h = React.createElement;
         const apDelete = (id) => {
           if (!confirm("이 API 설정을 삭제합니까?")) return;
           saveProviders(apiProviders.filter((p) => p.id !== id));
-          if (activeProviderId === id) selectProvider("quick");
+          if (activeProviderId === id) selectProvider(apiProviders.filter((p) => p.id !== id)[0]?.id || "");
         };
 
         const fmSubmitRename = (event) => {
@@ -790,6 +786,11 @@ const h = React.createElement;
           event && event.preventDefault();
           const term = chatQuery.trim();
           if (!term) return;
+          if (!activeProviderId || !apiProviders.find((x) => x.id === activeProviderId)) {
+            setError("⚙ API를 먼저 등록하고 선택하세요.");
+            setApiSettingsOpen(true);
+            return;
+          }
           setLoading("chat");
           setError("");
           api("/api/chat", {
@@ -799,10 +800,8 @@ const h = React.createElement;
               query: term,
               topK,
               ...(() => {
-                const builtins = { local: { provider: "local" }, quick: { provider: "quick" } };
-                if (builtins[activeProviderId]) return builtins[activeProviderId];
                 const p = apiProviders.find((x) => x.id === activeProviderId);
-                if (!p) return { provider: "quick" };
+                if (!p) return { provider: "__none__" };
                 return { provider: p.type, apiKey: p.apiKey || "", model: p.model || "", baseUrl: p.baseUrl || "", authHeader: p.authHeader || "", chatPath: p.chatPath || "" };
               })(),
             }),
@@ -1218,16 +1217,6 @@ const h = React.createElement;
                     )
                   )
                 : h("div", { className: "ap-list" },
-                    h("div", { className: "ap-section-title" }, "기본 제공"),
-                    BUILTIN_PROVIDERS.map((p) =>
-                      h("div", { key: p.id, className: "ap-row" + (activeProviderId === p.id ? " ap-active" : ""), onClick: () => selectProvider(p.id) },
-                        h("div", { className: "ap-row-info" },
-                          h("span", { className: "ap-name" }, p.name),
-                          activeProviderId === p.id && h("span", { className: "ap-badge" }, "사용 중")
-                        )
-                      )
-                    ),
-                    h("div", { className: "ap-section-title", style: { marginTop: "12px" } }, "사용자 API"),
                     apiProviders.length === 0 && h("p", { className: "ap-empty" }, "등록된 API가 없습니다."),
                     apiProviders.map((p) =>
                       h("div", { key: p.id, className: "ap-row" + (activeProviderId === p.id ? " ap-active" : ""), onClick: () => selectProvider(p.id) },
@@ -1793,10 +1782,8 @@ const h = React.createElement;
                       onChange: (e) => selectProvider(e.target.value),
                       style: { flex: 1 }
                     },
-                      BUILTIN_PROVIDERS.map((p) => h("option", { key: p.id, value: p.id }, p.name)),
-                      apiProviders.length > 0 && h("optgroup", { label: "사용자 API" },
-                        apiProviders.map((p) => h("option", { key: p.id, value: p.id }, p.name))
-                      )
+                      !activeProviderId && h("option", { value: "" }, "— API 선택 —"),
+                      apiProviders.map((p) => h("option", { key: p.id, value: p.id }, p.name))
                     ),
                     h("button", {
                       type: "button",
