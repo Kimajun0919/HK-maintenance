@@ -1,5 +1,5 @@
 hf_space_bundle/
-rag_chatbot/.venv/
+backend/.venv/
 **/__pycache__/
 *.pyc
 *.pyo

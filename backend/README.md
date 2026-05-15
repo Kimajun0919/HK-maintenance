@@ -15,7 +15,7 @@
 ## 로컬 실행
 
 ```powershell
-cd rag_chatbot
+cd backend
 python app.py
 ```
 
@@ -51,7 +51,7 @@ Render → New → Blueprint → GitHub 레포 연결
 
 ```powershell
 # 루트 .env에 설정 후
-python ../deploy_hf_space.py
+python ../scripts/deploy_hf_space.py
 ```
 
 Space 시크릿에 `SUPABASE_DB_URL`, `SUPABASE_SEED_FROM_FILES=0` 추가.

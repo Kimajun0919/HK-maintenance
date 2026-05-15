@@ -39,12 +39,12 @@ def prepare_bundle() -> None:
         shutil.rmtree(SPACE_DIR)
     SPACE_DIR.mkdir(parents=True)
 
-    shutil.copy2(ROOT / "rag_chatbot" / "app.py", SPACE_DIR / "app.py")
-    shutil.copy2(ROOT / "rag_chatbot" / "README.md", SPACE_DIR / "README.md")
-    copytree(ROOT / "rag_chatbot" / "web", SPACE_DIR / "web")
+    shutil.copy2(ROOT / "backend" / "app.py", SPACE_DIR / "app.py")
+    shutil.copy2(ROOT / "backend" / "README.md", SPACE_DIR / "README.md")
+    copytree(ROOT / "frontend", SPACE_DIR / "frontend")
     copytree(ROOT / "organized_maintenance_docs_simple", SPACE_DIR / "organized_maintenance_docs_simple")
 
-    requirements = (ROOT / "rag_chatbot" / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    requirements = (ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8").splitlines()
     (SPACE_DIR / "requirements.txt").write_text("\n".join(r for r in requirements if r.strip()) + "\n", encoding="utf-8")
 
     readme = SPACE_DIR / "README.md"

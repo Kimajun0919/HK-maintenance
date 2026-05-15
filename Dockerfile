@@ -2,11 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY rag_chatbot/requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY rag_chatbot/app.py .
-COPY rag_chatbot/web/ web/
+COPY backend/app.py .
+COPY frontend/ frontend/
 
 ENV APP_PORT=8080
 EXPOSE 8080

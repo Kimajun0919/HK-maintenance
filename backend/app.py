@@ -1237,7 +1237,18 @@ except ModuleNotFoundError as exc:
         raise
     demo = None
 
-WEB_DIR = APP_DIR / "web"
+WEB_DIR = next(
+    (
+        path
+        for path in (
+            APP_DIR / "frontend",
+            APP_DIR.parent / "frontend",
+            APP_DIR / "web",
+        )
+        if path.exists()
+    ),
+    APP_DIR.parent / "frontend",
+)
 
 
 def _json_response(data, status_code: int = 200):

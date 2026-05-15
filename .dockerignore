@@ -1,0 +1,8 @@
+backend/.venv
+**/__pycache__
+*.pyc
+*.log
+.env
+organized_maintenance_docs_simple
+hf_space_bundle
+requirements-llm.txt
