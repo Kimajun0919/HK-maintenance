@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: hk-maintenance-rag
+    runtime: docker
+    dockerfilePath: ./rag_chatbot/Dockerfile
+    dockerContext: ./rag_chatbot
+    plan: free
+    region: singapore
+    envVars:
+      - key: DOC_STORAGE
+        value: supabase
+      - key: SUPABASE_SEED_FROM_FILES
+        value: "0"
+      - key: APP_PORT
+        value: "8080"
+      - key: SUPABASE_DB_URL
+        sync: false
