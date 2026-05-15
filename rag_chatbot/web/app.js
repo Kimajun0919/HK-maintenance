@@ -1738,7 +1738,7 @@ const h = React.createElement;
                 type: "button",
                 className: activeTool === "question" ? "active" : "",
                 onClick: () => setActiveTool("question")
-              }, "질문")
+              }, "AI 질문")
             ),
             h("div", { className: "tool-panel" },
               activeTool === "search" ? [
