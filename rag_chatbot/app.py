@@ -35,6 +35,8 @@ DOC_STORAGE = os.getenv("DOC_STORAGE", "supabase" if SUPABASE_DB_URL else "files
 SUPABASE_ENABLED = DOC_STORAGE == "supabase" and bool(SUPABASE_DB_URL)
 SUPABASE_AUTO_MIGRATE = os.getenv("SUPABASE_AUTO_MIGRATE", "1") != "0"
 SUPABASE_SEED_FROM_FILES = os.getenv("SUPABASE_SEED_FROM_FILES", "1") != "0"
+ASSET_MAX_SIZE_MB = float(os.getenv("ASSET_MAX_SIZE_MB", "2"))
+ASSET_MAX_SIZE_BYTES = int(ASSET_MAX_SIZE_MB * 1024 * 1024)
 SUPABASE_DOCS_TABLE = os.getenv("SUPABASE_DOCS_TABLE", "maintenance_docs")
 SUPABASE_ASSETS_TABLE = os.getenv("SUPABASE_ASSETS_TABLE", f"{SUPABASE_DOCS_TABLE}_assets")
 SUPABASE_FOLDERS_TABLE = os.getenv("SUPABASE_FOLDERS_TABLE", f"{SUPABASE_DOCS_TABLE}_folders")
@@ -259,6 +261,13 @@ def _db_asset_count() -> int:
     with _db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(f"select count(*) from {SUPABASE_ASSETS_TABLE} where deleted_at is null")
+            return cur.fetchone()[0]
+
+
+def _db_asset_total_bytes() -> int:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select coalesce(sum(size_bytes), 0) from {SUPABASE_ASSETS_TABLE} where deleted_at is null")
             return cur.fetchone()[0]
 
 
@@ -1361,12 +1370,15 @@ def create_api_app():
 
     @api_app.get("/api/meta")
     def api_meta():
+        asset_total_bytes = _db_asset_total_bytes() if SUPABASE_ENABLED else 0
         return {
             "docsDir": str(DOCS_DIR),
             "storage": "supabase" if SUPABASE_ENABLED else "files",
             "chunkCount": len(chunks),
             "docCount": len(docs_index()),
             "assetCount": _db_asset_count() if SUPABASE_ENABLED else len(_file_asset_records()),
+            "assetTotalBytes": asset_total_bytes,
+            "assetMaxSizeBytes": ASSET_MAX_SIZE_BYTES,
             "llm": MODEL_NAME if USE_LLM else "disabled",
             "claudeDefaultModel": DEFAULT_CLAUDE_MODEL,
         }
@@ -1658,6 +1670,9 @@ def create_api_app():
         content = await upload.read()
         if not content:
             return _json_response({"error": "file is empty"}, status_code=400)
+        if len(content) > ASSET_MAX_SIZE_BYTES:
+            limit_mb = ASSET_MAX_SIZE_MB if ASSET_MAX_SIZE_MB == int(ASSET_MAX_SIZE_MB) else ASSET_MAX_SIZE_MB
+            return _json_response({"error": f"파일이 너무 큽니다. 최대 {int(limit_mb) if limit_mb == int(limit_mb) else limit_mb}MB까지 업로드할 수 있습니다."}, status_code=413)
         mime_type = getattr(upload, "content_type", None) or mimetypes.guess_type(str(upload.filename))[0] or "application/octet-stream"
         if not mime_type.startswith("image/"):
             return _json_response({"error": "only image uploads are supported"}, status_code=400)

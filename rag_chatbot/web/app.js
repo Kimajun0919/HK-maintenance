@@ -159,14 +159,16 @@ const h = React.createElement;
         return h("div", { className, dangerouslySetInnerHTML: { __html: renderMarkdown(text, source) } });
       }
 
-      function RichEditor({ value, source, onChange, minHeight = "520px" }) {
+      function RichEditor({ value, source, onChange, minHeight = "520px", maxSizeBytes = 2 * 1024 * 1024 }) {
         const hostRef = React.useRef(null);
         const editorRef = React.useRef(null);
         const sourceRef = React.useRef(source);
         const onChangeRef = React.useRef(onChange);
+        const maxSizeBytesRef = React.useRef(maxSizeBytes);
 
         React.useEffect(() => { sourceRef.current = source; }, [source]);
         React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+        React.useEffect(() => { maxSizeBytesRef.current = maxSizeBytes; }, [maxSizeBytes]);
 
         React.useEffect(() => {
           if (!hostRef.current || !window.toastui || !window.toastui.Editor) return;
@@ -188,6 +190,10 @@ const h = React.createElement;
             hooks: {
               addImageBlobHook: async (blob, callback) => {
                 try {
+                  if (blob.size > maxSizeBytesRef.current) {
+                    const mb = (maxSizeBytesRef.current / 1024 / 1024).toFixed(0);
+                    throw new Error(`파일이 너무 큽니다. 최대 ${mb}MB까지 업로드할 수 있습니다.`);
+                  }
                   const form = new FormData();
                   form.append("source", sourceRef.current || "");
                   form.append("file", blob, blob.name || "image.png");
@@ -895,7 +901,10 @@ const h = React.createElement;
             ),
             h("div", { className: "stats" },
               h("span", null, "문서 ", h("b", null, meta ? meta.docCount : "-")),
-              h("span", null, "청크 ", h("b", null, meta ? meta.chunkCount : "-"))
+              h("span", null, "청크 ", h("b", null, meta ? meta.chunkCount : "-")),
+              meta && meta.assetTotalBytes > 0 && h("span", {
+                title: `이미지 ${meta.assetCount}개 / 파일당 최대 ${(meta.assetMaxSizeBytes / 1024 / 1024).toFixed(0)}MB`
+              }, "이미지 ", h("b", null, (meta.assetTotalBytes / 1024 / 1024).toFixed(1) + "MB"))
             ),
             h("div", { className: "list-filter" },
               h("input", {
@@ -1134,6 +1143,7 @@ const h = React.createElement;
                     value: newContent,
                     source: draftSource(newCustomer, newTitle),
                     onChange: setNewContent,
+                    maxSizeBytes: meta ? meta.assetMaxSizeBytes : undefined,
                     minHeight: "480px"
                   }),
                   h("div", { className: "create-actions" },
@@ -1190,7 +1200,8 @@ const h = React.createElement;
                       value: draft,
                       source: doc.source,
                       onChange: setDraft,
-                      minHeight: "calc(100vh - 230px)"
+                      minHeight: "calc(100vh - 230px)",
+                      maxSizeBytes: meta ? meta.assetMaxSizeBytes : undefined
                     })
                   : h("div", null,
                       h("div", { className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source })),
