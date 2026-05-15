@@ -1082,8 +1082,8 @@ const h = React.createElement;
                         },
                           h("span", null, isOpen ? "▾" : "▸"),
                           h("strong", null, folder),
-                          pinnedFolders.has(folder) && h("span", { className: "pin-mark", title: "고정됨" }, "📌"),
-                          h("span", null, items.length)
+                          h("span", null, items.length),
+                          pinnedFolders.has(folder) && h("span", { className: "pin-mark", title: "고정됨" }, "📌")
                         ),
                         h("button", {
                           type: "button",
