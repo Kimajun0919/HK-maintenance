@@ -850,17 +850,16 @@
         flex-direction: column;
         align-items: center;
         gap: 4px;
-        padding: 10px 6px 8px;
+        padding: 20px 6px 8px;
         border-radius: 8px;
         border: 2px solid transparent;
-        cursor: default;
+        cursor: pointer;
         position: relative;
         transition: background 0.1s, border-color 0.1s;
       }
       .fm-card:hover {
         background: #f1f5f9;
         border-color: var(--line);
-        cursor: grab;
       }
       .fm-card.fm-pinned { background: #fefce8; }
       .fm-card.fm-pinned:hover { background: #fef9c3; border-color: #fbbf24; }
@@ -919,6 +918,38 @@
         line-height: 1.4;
       }
       .fm-card-actions button:hover { background: #e2e8f0; }
+      /* 뒤로가기·툴바 */
+      .fm-back-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 16px;
+        padding: 0 4px;
+        color: var(--muted);
+        border-radius: 4px;
+      }
+      .fm-back-btn:hover { background: #e2e8f0; color: var(--text); }
+      .fm-breadcrumb-sep { color: var(--muted); font-size: 14px; }
+      .fm-toolbar-count { font-size: 12px; color: var(--muted); margin-left: 8px; }
+      /* 카드 드래그 핸들 */
+      .fm-card-top {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+      }
+      .fm-card-drag {
+        font-size: 13px;
+        color: #cbd5e1;
+        cursor: grab;
+        padding: 2px;
+        border-radius: 3px;
+        display: block;
+        line-height: 1;
+        user-select: none;
+      }
+      .fm-card:hover .fm-card-drag { color: #94a3b8; }
+      .fm-card-drag:hover { background: #e2e8f0; color: var(--text) !important; }
+      .fm-card-drag:active { cursor: grabbing; }
       .fm-rename-form { width: 100%; }
       .fm-rename-input {
         width: 100%;
