@@ -211,6 +211,16 @@ export function App() {
             .finally(() => setLoading(""));
         };
 
+        const closeDoc = () => {
+          setSelected("");
+          setDoc(null);
+          setDraft("");
+          setEditMode(false);
+          setShowRenameDoc(false);
+          setRenameDocFolder("");
+          setRenameDocTitle("");
+        };
+
         const toggleFolder = (folder) => {
           setOpenFolders((prev) => ({ ...prev, [folder]: !prev[folder] }));
         };
@@ -1402,7 +1412,8 @@ export function App() {
                       ] : [
                         h("button", { key: "rename", type: "button", onClick: startRenameDoc }, "이름 변경"),
                         h("button", { key: "edit", type: "button", onClick: () => { setDraft(doc.content || ""); setEditMode(true); } }, "수정"),
-                        h("button", { key: "delete", type: "button", className: "danger", onClick: deleteDoc }, loading === "delete" ? "삭제 중" : "삭제")
+                        h("button", { key: "delete", type: "button", className: "danger", onClick: deleteDoc }, loading === "delete" ? "삭제 중" : "삭제"),
+                        h("button", { key: "close", type: "button", className: "ghost", title: "자료 닫기", onClick: closeDoc }, "닫기")
                       ]
                     )
                   )
