@@ -329,6 +329,16 @@ def _db_rename_folder(old_name: str, new_name: str) -> None:
             )
 
 
+def _db_soft_delete_folder_docs(folder_name: str) -> int:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"update {SUPABASE_DOCS_TABLE} set deleted_at = now() where customer = %s and deleted_at is null",
+                (folder_name,),
+            )
+            return cur.rowcount
+
+
 def _db_delete_folder(name: str) -> None:
     with _db_connect() as conn:
         with conn.cursor() as cur:

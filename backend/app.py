@@ -45,6 +45,7 @@ from storage import (
     _db_create_folder,
     _db_delete_folder,
     _db_doc_record,
+    _db_soft_delete_folder_docs,
     _db_folder_doc_count,
     _db_folder_exists,
     _db_folder_records,
@@ -681,13 +682,18 @@ def create_api_app():
         except json.JSONDecodeError:
             return _json_response({"error": "invalid json"}, status_code=400)
         name = _safe_folder_name(str(payload.get("name", "")))
+        force = bool(payload.get("force", False))
         if not name:
             return _json_response({"error": "invalid folder name"}, status_code=400)
         if SUPABASE_ENABLED:
             if not _db_folder_exists(name):
                 return _json_response({"error": "folder not found"}, status_code=404)
-            if _db_folder_doc_count(name) > 0:
-                return _json_response({"error": "folder is not empty"}, status_code=409)
+            count = _db_folder_doc_count(name)
+            if count > 0 and not force:
+                return _json_response({"error": "folder is not empty", "count": count}, status_code=409)
+            if count > 0:
+                _db_soft_delete_folder_docs(name)
+                rag.refresh_index()
             _db_delete_folder(name)
         else:
             path = (DOCS_DIR / name).resolve()

@@ -416,18 +416,40 @@ export function App() {
             .finally(() => setLoading(""));
         };
 
-        const deleteFolder = (folder) => {
-          if (!confirm(`'${folder}' 폴더를 삭제할까요? 비어 있는 폴더만 삭제됩니다.`)) return;
+        const deleteFolder = async (folder) => {
+          if (!confirm(`'${folder}' 폴더를 삭제할까요?`)) return;
           setLoading("folder");
           setError("");
-          api("/api/folder", {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: folder }),
-          })
-            .then(() => Promise.all([loadDocs(), refreshMeta()]))
-            .catch((err) => setError(err.message))
-            .finally(() => setLoading(""));
+          try {
+            let res = await fetch("/api/folder", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: folder }),
+            });
+            if (res.status === 409) {
+              const data = await res.json();
+              const count = data.count || 0;
+              const msg = count > 0
+                ? `폴더에 문서 ${count}개가 있습니다. 모두 휴지통으로 이동하고 폴더를 삭제할까요?`
+                : "폴더가 비어 있지 않습니다. 강제 삭제할까요?";
+              if (!confirm(msg)) return;
+              res = await fetch("/api/folder", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: folder, force: true }),
+              });
+              const data2 = await res.json();
+              if (!res.ok) throw new Error(data2.error || res.statusText);
+            } else if (!res.ok) {
+              const data = await res.json();
+              throw new Error(data.error || res.statusText);
+            }
+            await Promise.all([loadDocs(), refreshMeta()]);
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setLoading("");
+          }
         };
 
         const startRenameDoc = () => {
