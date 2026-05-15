@@ -700,8 +700,11 @@ def docs_index() -> list[dict[str, str]]:
 def create_api_app():
     from fastapi import FastAPI, Query
     from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+    from fastapi.staticfiles import StaticFiles
 
     api_app = FastAPI(title="HK Maintenance Portal")
+    if WEB_DIR.exists():
+        api_app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
 
     @api_app.get("/", response_class=HTMLResponse)
     def home():
