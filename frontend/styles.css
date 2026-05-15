@@ -1341,8 +1341,8 @@
         flex: 1;
         min-height: 0;
         display: grid;
-        grid-template-rows: minmax(0, 1fr) 170px;
-        gap: 12px;
+        grid-template-rows: minmax(0, 1fr) 8px var(--reference-height, 170px);
+        gap: 0;
         align-items: stretch;
       }
       .search-pane {
@@ -1354,6 +1354,23 @@
       .search-pane .section-title {
         margin-top: 12px;
         flex: 0 0 auto;
+      }
+      .search-split-resizer {
+        position: relative;
+        cursor: row-resize;
+      }
+      .search-split-resizer::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 3px;
+        height: 2px;
+        border-radius: 999px;
+        background: var(--line);
+      }
+      .search-split-resizer:hover::before {
+        background: var(--accent);
       }
       .search-results {
         min-height: 0;

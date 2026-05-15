@@ -48,6 +48,10 @@ export function App() {
           const saved = Number(localStorage.getItem("hk.rightWidth"));
           return saved && saved >= 520 ? saved : 720;
         });
+        const [referenceHeight, setReferenceHeight] = React.useState(() => {
+          const saved = Number(localStorage.getItem("hk.referenceHeight"));
+          return saved && saved >= 110 ? saved : 170;
+        });
         const [leftCollapsed, setLeftCollapsed] = React.useState(() => localStorage.getItem("hk.leftCollapsed") === "1");
         const [rightCollapsed, setRightCollapsed] = React.useState(() => localStorage.getItem("hk.rightCollapsed") === "1");
         const [explorerMenu, setExplorerMenu] = React.useState(null);
@@ -94,6 +98,10 @@ export function App() {
         }, [rightCollapsed]);
 
         React.useEffect(() => {
+          localStorage.setItem("hk.referenceHeight", String(referenceHeight));
+        }, [referenceHeight]);
+
+        React.useEffect(() => {
           localStorage.setItem("hk.docSort", docSort);
         }, [docSort]);
 
@@ -119,6 +127,22 @@ export function App() {
             document.removeEventListener("pointerup", onUp);
           };
 
+          document.addEventListener("pointermove", onMove);
+          document.addEventListener("pointerup", onUp);
+        };
+
+        const startReferenceResize = (event) => {
+          event.preventDefault();
+          const startY = event.clientY;
+          const startHeight = referenceHeight;
+          const onMove = (moveEvent) => {
+            const delta = moveEvent.clientY - startY;
+            setReferenceHeight(clamp(startHeight - delta, 96, 360));
+          };
+          const onUp = () => {
+            document.removeEventListener("pointermove", onMove);
+            document.removeEventListener("pointerup", onUp);
+          };
           document.addEventListener("pointermove", onMove);
           document.addEventListener("pointerup", onUp);
         };
@@ -1575,11 +1599,21 @@ export function App() {
                     h("button", { className: "primary", type: "submit" }, loading === "search" ? "중" : "검색")
                   )
                 ),
-                search && h("div", { key: "search-split", className: "search-split" },
+                search && h("div", {
+                  key: "search-split",
+                  className: "search-split",
+                  style: { "--reference-height": referenceHeight + "px" }
+                },
                   h("section", { className: "search-pane" },
                     h("div", { className: "section-title" }, "검색 답변"),
                     h("div", { className: "answer search-answer" }, h(Markdown, { text: search.answer }))
                   ),
+                  h("div", {
+                    className: "search-split-resizer",
+                    role: "separator",
+                    title: "검색 답변 / 참고자료 영역 조절",
+                    onPointerDown: startReferenceResize
+                  }),
                   h("section", { className: "search-pane" },
                     h("div", { className: "section-title" }, "참고자료"),
                     h("div", { className: "search-results" },
@@ -1629,11 +1663,21 @@ export function App() {
                     )
                   )
                 ),
-                chatAnswer && h("div", { key: "question-split", className: "search-split" },
+                chatAnswer && h("div", {
+                  key: "question-split",
+                  className: "search-split",
+                  style: { "--reference-height": referenceHeight + "px" }
+                },
                   h("section", { className: "search-pane" },
                     h("div", { className: "section-title" }, "AI 답변"),
                     h("div", { className: "answer search-answer" }, h(Markdown, { text: chatAnswer }))
                   ),
+                  h("div", {
+                    className: "search-split-resizer",
+                    role: "separator",
+                    title: "AI 답변 / 참고자료 영역 조절",
+                    onPointerDown: startReferenceResize
+                  }),
                   h("section", { className: "search-pane" },
                     h("div", { className: "section-title" }, "참고자료"),
                     h("div", { className: "search-results" },
