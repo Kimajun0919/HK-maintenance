@@ -639,29 +639,45 @@
         overflow: auto;
         padding: 22px;
       }
+      .reader.has-doc-windows {
+        padding-top: 18px;
+      }
       .doc-window-bar {
-        max-width: 980px;
-        margin: 0 auto 10px;
+        flex: 0 0 auto;
+        min-height: 38px;
+        width: 100%;
         display: flex;
-        gap: 6px;
+        align-items: flex-end;
+        gap: 1px;
         overflow-x: auto;
-        padding-bottom: 2px;
+        overflow-y: hidden;
+        padding: 5px 10px 0;
+        border-bottom: 1px solid #cbd5e1;
+        background: #dfe6ef;
       }
       .doc-window-tab {
-        flex: 0 0 min(260px, 72vw);
-        min-width: 0;
+        position: relative;
+        flex: 0 1 218px;
+        max-width: 240px;
+        min-width: 128px;
         display: grid;
         grid-template-columns: minmax(0, 1fr) 30px;
         align-items: stretch;
-        border: 1px solid var(--line);
-        border-radius: 8px 8px 0 0;
-        background: #f8fafc;
+        height: 33px;
+        border: 1px solid transparent;
+        border-bottom: 0;
+        border-radius: 9px 9px 0 0;
+        background: #cfd8e3;
         overflow: hidden;
+      }
+      .doc-window-tab:hover {
+        background: #e8edf3;
       }
       .doc-window-tab.active {
         background: #fff;
-        border-color: #94a3b8;
-        box-shadow: 0 -1px 0 #94a3b8 inset;
+        border-color: #cbd5e1;
+        box-shadow: 0 1px 0 #fff;
+        z-index: 1;
       }
       .doc-window-main,
       .doc-window-close {
@@ -670,33 +686,44 @@
         min-width: 0;
       }
       .doc-window-main {
-        display: block;
+        display: flex;
+        align-items: center;
+        gap: 8px;
         text-align: left;
-        padding: 7px 8px;
+        padding: 0 8px 0 12px;
       }
-      .doc-window-title,
-      .doc-window-path {
-        display: block;
+      .doc-window-icon {
+        flex: 0 0 14px;
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        background: linear-gradient(135deg, #22c55e, #0ea5e9);
+      }
+      .doc-window-tab.active .doc-window-icon {
+        background: linear-gradient(135deg, #16a34a, #2563eb);
+      }
+      .doc-window-title {
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-      }
-      .doc-window-title {
-        font-weight: 700;
-        font-size: 13px;
-      }
-      .doc-window-path {
-        margin-top: 2px;
-        color: var(--muted);
-        font-size: 11px;
+        color: #0f172a;
+        font-weight: 600;
+        font-size: 12px;
       }
       .doc-window-close {
+        width: 26px;
+        height: 26px;
+        align-self: center;
+        justify-self: center;
+        border-radius: 999px;
         color: var(--muted);
-        font-size: 18px;
+        font-size: 16px;
+        line-height: 1;
       }
       .doc-window-close:hover {
-        background: #fee2e2;
-        color: #991b1b;
+        background: #e2e8f0;
+        color: #0f172a;
       }
       .doc-view {
         max-width: 980px;
@@ -705,6 +732,9 @@
         border-radius: 8px;
         overflow: hidden;
         background: var(--panel);
+      }
+      .reader.has-doc-windows .doc-view {
+        border-radius: 8px;
       }
       .doc-header {
         padding: 18px 20px 14px;

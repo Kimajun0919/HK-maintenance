@@ -1324,33 +1324,33 @@ export function App() {
                 }, "‹")
               )
             ),
-            h("section", { className: "reader" },
-              error && h("p", { className: "error" }, error),
-              openDocs.length > 0 && h("div", { className: "doc-window-bar" },
-                openDocs.map((item) => h("div", {
-                  key: item.source,
-                  className: "doc-window-tab " + (doc && doc.source === item.source ? "active" : "")
+            openDocs.length > 0 && h("div", { className: "doc-window-bar" },
+              openDocs.map((item) => h("div", {
+                key: item.source,
+                className: "doc-window-tab " + (doc && doc.source === item.source ? "active" : "")
+              },
+                h("button", {
+                  type: "button",
+                  className: "doc-window-main",
+                  title: item.source,
+                  onClick: () => switchDocWindow(item.source)
                 },
-                  h("button", {
-                    type: "button",
-                    className: "doc-window-main",
-                    title: item.source,
-                    onClick: () => switchDocWindow(item.source)
-                  },
-                    h("span", { className: "doc-window-title" }, item.title || item.source),
-                    h("span", { className: "doc-window-path" }, item.source)
-                  ),
-                  h("button", {
-                    type: "button",
-                    className: "doc-window-close",
-                    title: "창 닫기",
-                    onClick: (event) => {
-                      event.stopPropagation();
-                      closeDoc(item.source);
-                    }
-                  }, "×")
-                ))
-              ),
+                  h("span", { className: "doc-window-icon", "aria-hidden": "true" }),
+                  h("span", { className: "doc-window-title" }, item.title || item.source)
+                ),
+                h("button", {
+                  type: "button",
+                  className: "doc-window-close",
+                  title: "창 닫기",
+                  onClick: (event) => {
+                    event.stopPropagation();
+                    closeDoc(item.source);
+                  }
+                }, "×")
+              ))
+            ),
+            h("section", { className: "reader " + (openDocs.length > 0 ? "has-doc-windows" : "") },
+              error && h("p", { className: "error" }, error),
               showCreate && h("section", { className: "create-panel" },
                 h("header", null, "새 문서 만들기"),
                 h("form", { className: "create-form", onSubmit: createDoc },
