@@ -834,82 +834,6 @@ def extract_readable_bullets(text: str) -> list[str]:
 
 
 # ──────────────────────────────────────────────
-# Global index
-# ──────────────────────────────────────────────
-
-_init_supabase_storage()
-chunks = load_chunks()
-retriever = Retriever(chunks)
-load_settings()  # apply settings.json after retriever is ready
-
-
-def refresh_index() -> None:
-    global chunks, retriever
-    chunks = load_chunks()
-    retriever = Retriever(chunks)
-    _apply_settings_to_runtime()  # re-apply BM25 params to the new retriever
-
-
-# ──────────────────────────────────────────────
-# Retrieval entry points
-# ──────────────────────────────────────────────
-
-
-def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
-    """
-    Standard retrieval for /api/search and immediate answers.
-    Respects the caller's top_k exactly; uses intent-based candidate_k for stage-1 recall.
-    Returns full-chunk context (backward-compatible).
-    """
-    query = query.strip()
-    if not query:
-        return [], ""
-
-    intent = detect_intent(query)
-    candidate_k = INTENT_CONFIG[intent]["candidate_k"]
-
-    if _RAG_DEBUG:
-        print(f"[RAG_DEBUG] retrieve() intent={intent} top_k={top_k} candidate_k={candidate_k}")
-
-    results = retriever.search(query, top_k=top_k, candidate_k=candidate_k, debug=_RAG_DEBUG)
-    context = build_context(results)
-    return results, context
-
-
-def retrieve_for_llm(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
-    """
-    Retrieval with compact snippet context for LLM consumption.
-    When top_k is the default (5), uses intent-based top_k for tighter focus.
-    Returns a compact context string instead of full chunks.
-    """
-    query = query.strip()
-    if not query:
-        return [], ""
-
-    intent = detect_intent(query)
-    cfg = INTENT_CONFIG[intent]
-    # Only override top_k when the caller passed the default; respect explicit values
-    effective_top_k = cfg["top_k"] if top_k == 5 else top_k
-    candidate_k = cfg["candidate_k"]
-    max_chars = cfg["max_context_chars"]
-    snippets_per_chunk = cfg["snippets_per_chunk"]
-
-    if _RAG_DEBUG:
-        print(
-            f"[RAG_DEBUG] retrieve_for_llm() intent={intent} "
-            f"top_k={effective_top_k} candidate_k={candidate_k} max_chars={max_chars}"
-        )
-
-    results = retriever.search(query, top_k=effective_top_k, candidate_k=candidate_k, debug=_RAG_DEBUG)
-    context = build_compact_context(query, results, max_chars=max_chars, snippets_per_chunk=snippets_per_chunk)
-
-    if _RAG_DEBUG:
-        print(f"[RAG_DEBUG] compact context length={len(context)}")
-
-    return results, context
-
-
-# ──────────────────────────────────────────────
 # LLM prompt constants
 # ──────────────────────────────────────────────
 
@@ -927,7 +851,7 @@ def _build_llm_user_prompt(query: str, context: str) -> str:
 
 
 # ──────────────────────────────────────────────
-# Runtime settings
+# Runtime settings  (defined before global init so load_settings() is callable)
 # ──────────────────────────────────────────────
 
 _SETTINGS_FILE = Path(__file__).parent / "settings.json"
@@ -1034,6 +958,82 @@ def reset_settings() -> dict:
         pass
     _apply_settings_to_runtime()
     return get_settings()
+
+
+# ──────────────────────────────────────────────
+# Global index
+# ──────────────────────────────────────────────
+
+_init_supabase_storage()
+chunks = load_chunks()
+retriever = Retriever(chunks)
+load_settings()  # apply settings.json after retriever is ready
+
+
+def refresh_index() -> None:
+    global chunks, retriever
+    chunks = load_chunks()
+    retriever = Retriever(chunks)
+    _apply_settings_to_runtime()  # re-apply BM25 params to the new retriever
+
+
+# ──────────────────────────────────────────────
+# Retrieval entry points
+# ──────────────────────────────────────────────
+
+
+def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
+    """
+    Standard retrieval for /api/search and immediate answers.
+    Respects the caller's top_k exactly; uses intent-based candidate_k for stage-1 recall.
+    Returns full-chunk context (backward-compatible).
+    """
+    query = query.strip()
+    if not query:
+        return [], ""
+
+    intent = detect_intent(query)
+    candidate_k = INTENT_CONFIG[intent]["candidate_k"]
+
+    if _RAG_DEBUG:
+        print(f"[RAG_DEBUG] retrieve() intent={intent} top_k={top_k} candidate_k={candidate_k}")
+
+    results = retriever.search(query, top_k=top_k, candidate_k=candidate_k, debug=_RAG_DEBUG)
+    context = build_context(results)
+    return results, context
+
+
+def retrieve_for_llm(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
+    """
+    Retrieval with compact snippet context for LLM consumption.
+    When top_k is the default (5), uses intent-based top_k for tighter focus.
+    Returns a compact context string instead of full chunks.
+    """
+    query = query.strip()
+    if not query:
+        return [], ""
+
+    intent = detect_intent(query)
+    cfg = INTENT_CONFIG[intent]
+    # Only override top_k when the caller passed the default; respect explicit values
+    effective_top_k = cfg["top_k"] if top_k == 5 else top_k
+    candidate_k = cfg["candidate_k"]
+    max_chars = cfg["max_context_chars"]
+    snippets_per_chunk = cfg["snippets_per_chunk"]
+
+    if _RAG_DEBUG:
+        print(
+            f"[RAG_DEBUG] retrieve_for_llm() intent={intent} "
+            f"top_k={effective_top_k} candidate_k={candidate_k} max_chars={max_chars}"
+        )
+
+    results = retriever.search(query, top_k=effective_top_k, candidate_k=candidate_k, debug=_RAG_DEBUG)
+    context = build_compact_context(query, results, max_chars=max_chars, snippets_per_chunk=snippets_per_chunk)
+
+    if _RAG_DEBUG:
+        print(f"[RAG_DEBUG] compact context length={len(context)}")
+
+    return results, context
 
 
 # ──────────────────────────────────────────────
