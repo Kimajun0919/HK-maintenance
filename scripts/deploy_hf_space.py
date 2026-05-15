@@ -39,7 +39,8 @@ def prepare_bundle() -> None:
         shutil.rmtree(SPACE_DIR)
     SPACE_DIR.mkdir(parents=True)
 
-    shutil.copy2(ROOT / "backend" / "app.py", SPACE_DIR / "app.py")
+    for backend_file in (ROOT / "backend").glob("*.py"):
+        shutil.copy2(backend_file, SPACE_DIR / backend_file.name)
     shutil.copy2(ROOT / "backend" / "README.md", SPACE_DIR / "README.md")
     copytree(ROOT / "frontend", SPACE_DIR / "frontend")
     copytree(ROOT / "organized_maintenance_docs_simple", SPACE_DIR / "organized_maintenance_docs_simple")
