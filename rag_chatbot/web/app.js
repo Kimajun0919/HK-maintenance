@@ -288,6 +288,10 @@ const h = React.createElement;
         const [error, setError] = React.useState("");
         const [trashOpen, setTrashOpen] = React.useState(false);
         const [trashItems, setTrashItems] = React.useState(null);
+        const [folderOrder, setFolderOrder] = React.useState(() => {
+          try { return JSON.parse(localStorage.getItem("hk.folderOrder") || "null") || null; } catch { return null; }
+        });
+        const [dragOverFolder, setDragOverFolder] = React.useState("");
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -399,6 +403,13 @@ const h = React.createElement;
               const ta = Math.max(...a[1].items.map((i) => i.updatedAt ? new Date(i.updatedAt).getTime() : 0), 0);
               const tb = Math.max(...b[1].items.map((i) => i.updatedAt ? new Date(i.updatedAt).getTime() : 0), 0);
               return tb - ta || compareText(a[0], b[0]);
+            }
+            if (folderOrder) {
+              const ai = folderOrder.indexOf(a[0]);
+              const bi = folderOrder.indexOf(b[0]);
+              if (ai !== -1 && bi !== -1) return ai - bi;
+              if (ai !== -1) return -1;
+              if (bi !== -1) return 1;
             }
             return compareText(a[0], b[0]);
           });
@@ -598,25 +609,16 @@ const h = React.createElement;
         };
 
         const reorderFolder = (targetFolder) => {
+          setDragOverFolder("");
           if (!draggedFolderName || draggedFolderName === targetFolder) return;
           const names = groupedDocs.map(([folder]) => folder);
           const from = names.indexOf(draggedFolderName);
           const to = names.indexOf(targetFolder);
           if (from < 0 || to < 0) return;
           names.splice(to, 0, names.splice(from, 1)[0]);
-          setDocSort("custom");
-          setLoading("folder");
-          api("/api/folders/order", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ folders: names }),
-          })
-            .then(() => loadDocs())
-            .catch((err) => setError(err.message))
-            .finally(() => {
-              setDraggedFolderName("");
-              setLoading("");
-            });
+          setFolderOrder(names);
+          localStorage.setItem("hk.folderOrder", JSON.stringify(names));
+          setDraggedFolderName("");
         };
 
         const runSearch = (event) => {
@@ -1050,14 +1052,13 @@ const h = React.createElement;
                         h("button", { type: "submit", className: "primary" }, "저장")
                       )
                     : h("div", {
-                        className: "folder-row",
-                        draggable: true,
-                        onDragStart: () => setDraggedFolderName(folder),
-                        onDragEnd: () => setDraggedFolderName(""),
-                        onDragOver: (event) => event.preventDefault(),
-                        onDrop: () => {
+                        className: "folder-row" + (dragOverFolder === folder ? " drag-over" : ""),
+                        onDragOver: (event) => { event.preventDefault(); if (draggedFolderName && draggedFolderName !== folder) setDragOverFolder(folder); },
+                        onDragLeave: () => setDragOverFolder(""),
+                        onDrop: (event) => {
+                          event.preventDefault();
                           if (draggedDocSource) moveDocToFolder(draggedDocSource, folder);
-                          else reorderFolder(folder);
+                          else if (draggedFolderName) reorderFolder(folder);
                         }
                       },
                         h("button", {
@@ -1081,7 +1082,14 @@ const h = React.createElement;
                           h("button", { type: "button", onClick: () => { setExplorerMenu(null); startCreate(); setNewCustomer(folder); } }, "새 문서"),
                           h("button", { type: "button", onClick: () => { setExplorerMenu(null); startRenameFolder(folder); } }, "이름 변경"),
                           h("button", { type: "button", className: "danger-text", onClick: () => { setExplorerMenu(null); deleteFolder(folder); } }, "삭제")
-                        )
+                        ),
+                        docSort !== "latest" && h("span", {
+                          className: "folder-drag-handle",
+                          draggable: true,
+                          title: "드래그하여 순서 변경",
+                          onDragStart: (event) => { event.stopPropagation(); setDraggedFolderName(folder); },
+                          onDragEnd: () => { setDraggedFolderName(""); setDragOverFolder(""); }
+                        }, "⋮")
                       ),
                   isOpen && h("div", { className: "doc-group" },
                     items.map((item) => h("div", {
