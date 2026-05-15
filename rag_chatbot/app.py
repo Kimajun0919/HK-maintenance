@@ -4,12 +4,13 @@ import os
 import re
 import math
 import json
+import mimetypes
 import urllib.parse
 import urllib.request
 import urllib.error
 from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import Request
 from dotenv import load_dotenv
@@ -34,8 +35,11 @@ SUPABASE_ENABLED = DOC_STORAGE == "supabase" and bool(SUPABASE_DB_URL)
 SUPABASE_AUTO_MIGRATE = os.getenv("SUPABASE_AUTO_MIGRATE", "1") != "0"
 SUPABASE_SEED_FROM_FILES = os.getenv("SUPABASE_SEED_FROM_FILES", "1") != "0"
 SUPABASE_DOCS_TABLE = os.getenv("SUPABASE_DOCS_TABLE", "maintenance_docs")
+SUPABASE_ASSETS_TABLE = os.getenv("SUPABASE_ASSETS_TABLE", f"{SUPABASE_DOCS_TABLE}_assets")
 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SUPABASE_DOCS_TABLE):
     raise ValueError("SUPABASE_DOCS_TABLE must be a simple SQL identifier")
+if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SUPABASE_ASSETS_TABLE):
+    raise ValueError("SUPABASE_ASSETS_TABLE must be a simple SQL identifier")
 
 
 QUERY_ALIASES = {
@@ -74,6 +78,13 @@ class DocRecord:
     content: str
 
 
+@dataclass
+class AssetRecord:
+    path: str
+    mime_type: str
+    content: bytes
+
+
 def _file_doc_records() -> list[DocRecord]:
     if not DOCS_DIR.exists():
         return []
@@ -94,6 +105,20 @@ def _file_doc_records() -> list[DocRecord]:
                 content=path.read_text(encoding="utf-8", errors="replace"),
             )
         )
+    return records
+
+
+def _file_asset_records() -> list[AssetRecord]:
+    if not DOCS_DIR.exists():
+        return []
+
+    records: list[AssetRecord] = []
+    for path in sorted(DOCS_DIR.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+            continue
+        rel = path.relative_to(DOCS_DIR).as_posix()
+        mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        records.append(AssetRecord(path=rel, mime_type=mime_type, content=path.read_bytes()))
     return records
 
 
@@ -126,6 +151,20 @@ def _init_supabase_storage() -> None:
                 )
                 cur.execute(f"create index if not exists {SUPABASE_DOCS_TABLE}_customer_idx on {SUPABASE_DOCS_TABLE} (customer)")
                 cur.execute(f"create index if not exists {SUPABASE_DOCS_TABLE}_updated_at_idx on {SUPABASE_DOCS_TABLE} (updated_at desc)")
+                cur.execute(
+                    f"""
+                    create table if not exists {SUPABASE_ASSETS_TABLE} (
+                        id bigserial primary key,
+                        path text not null unique,
+                        mime_type text not null default 'application/octet-stream',
+                        content bytea not null,
+                        size_bytes integer not null default 0,
+                        created_at timestamptz not null default now(),
+                        updated_at timestamptz not null default now()
+                    )
+                    """
+                )
+                cur.execute(f"create index if not exists {SUPABASE_ASSETS_TABLE}_updated_at_idx on {SUPABASE_ASSETS_TABLE} (updated_at desc)")
             if SUPABASE_SEED_FROM_FILES:
                 cur.execute(f"select count(*) from {SUPABASE_DOCS_TABLE}")
                 count = cur.fetchone()[0]
@@ -140,6 +179,23 @@ def _init_supabase_storage() -> None:
                             """,
                             rows,
                         )
+                cur.execute(f"select count(*) from {SUPABASE_ASSETS_TABLE}")
+                asset_count = cur.fetchone()[0]
+                if asset_count == 0:
+                    rows = [(record.path, record.mime_type, record.content, len(record.content)) for record in _file_asset_records()]
+                    if rows:
+                        cur.executemany(
+                            f"""
+                            insert into {SUPABASE_ASSETS_TABLE} (path, mime_type, content, size_bytes)
+                            values (%s, %s, %s, %s)
+                            on conflict (path) do update set
+                                mime_type = excluded.mime_type,
+                                content = excluded.content,
+                                size_bytes = excluded.size_bytes,
+                                updated_at = now()
+                            """,
+                            rows,
+                        )
 
 
 def _db_doc_records() -> list[DocRecord]:
@@ -147,6 +203,36 @@ def _db_doc_records() -> list[DocRecord]:
         with conn.cursor() as cur:
             cur.execute(f"select source, title, customer, content from {SUPABASE_DOCS_TABLE} order by source")
             return [DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3]) for row in cur.fetchall()]
+
+
+def _db_asset_count() -> int:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select count(*) from {SUPABASE_ASSETS_TABLE}")
+            return cur.fetchone()[0]
+
+
+def _db_asset_paths(prefix: str = "") -> list[str]:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            if prefix:
+                cur.execute(f"select path from {SUPABASE_ASSETS_TABLE} where path like %s order by path", (f"{prefix}%",))
+            else:
+                cur.execute(f"select path from {SUPABASE_ASSETS_TABLE} order by path")
+            return [row[0] for row in cur.fetchall()]
+
+
+def _db_asset_record(path: str) -> AssetRecord | None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"select path, mime_type, content from {SUPABASE_ASSETS_TABLE} where path = %s",
+                (path,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return AssetRecord(path=row[0], mime_type=row[1], content=bytes(row[2]))
 
 
 def _db_doc_record(source: str) -> DocRecord | None:
@@ -874,6 +960,57 @@ def _safe_asset_path(source: str, asset_path: str) -> Path | None:
     return None
 
 
+def _safe_posix_parts(value: str) -> tuple[str, ...] | None:
+    parts = PurePosixPath(value.replace("\\", "/")).parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        return None
+    if str(value).startswith(("/", "\\")):
+        return None
+    return parts
+
+
+def _db_asset_record_for_request(source: str, asset_path: str) -> AssetRecord | None:
+    if _db_doc_record(source) is None:
+        return None
+    source_parts = _safe_posix_parts(urllib.parse.unquote(source))
+    asset_parts = _safe_posix_parts(urllib.parse.unquote(asset_path))
+    if source_parts is None or asset_parts is None:
+        return None
+
+    doc_parent = PurePosixPath(*source_parts[:-1])
+    direct_path = (doc_parent / PurePosixPath(*asset_parts)).as_posix()
+    direct = _db_asset_record(direct_path)
+    if direct is not None:
+        return direct
+
+    images_prefix = (doc_parent / "images").as_posix().strip("/")
+    if images_prefix:
+        images_prefix += "/"
+    paths = _db_asset_paths(images_prefix)
+    if not paths:
+        return None
+
+    original_name = PurePosixPath(*asset_parts).name
+    doc_key = re.sub(r"_\d{8}$", "", PurePosixPath(*source_parts).stem)
+    name_match = re.match(r"image(?:\s+(\d+))?\.[A-Za-z0-9]+$", original_name, flags=re.I)
+    if name_match:
+        number = name_match.group(1)
+        if number:
+            patterns = (f"{doc_key}_image_{number}_", f"image_{number}_")
+        else:
+            patterns = (f"{doc_key}_image_", "image_")
+        for path in paths:
+            filename = PurePosixPath(path).name
+            if any(pattern in filename for pattern in patterns):
+                return _db_asset_record(path)
+
+    original_stem = PurePosixPath(original_name).stem.replace(" ", "_")
+    for path in paths:
+        if original_stem and original_stem in PurePosixPath(path).stem:
+            return _db_asset_record(path)
+    return None
+
+
 def docs_index() -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     for record in _doc_records():
@@ -886,7 +1023,7 @@ def docs_index() -> list[dict[str, str]]:
 
 def create_api_app():
     from fastapi import FastAPI, Query
-    from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+    from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
     from fastapi.staticfiles import StaticFiles
 
     api_app = FastAPI(title="HK Maintenance Portal")
@@ -911,6 +1048,7 @@ def create_api_app():
             "storage": "supabase" if SUPABASE_ENABLED else "files",
             "chunkCount": len(chunks),
             "docCount": len(docs_index()),
+            "assetCount": _db_asset_count() if SUPABASE_ENABLED else len(_file_asset_records()),
             "llm": MODEL_NAME if USE_LLM else "disabled",
             "claudeDefaultModel": DEFAULT_CLAUDE_MODEL,
         }
@@ -1026,6 +1164,11 @@ def create_api_app():
 
     @api_app.get("/api/asset")
     def api_asset(source: str = Query(...), path: str = Query(...)):
+        if SUPABASE_ENABLED:
+            asset_record = _db_asset_record_for_request(source, path)
+            if asset_record is None:
+                return _json_response({"error": "asset not found"}, status_code=404)
+            return Response(content=asset_record.content, media_type=asset_record.mime_type)
         asset = _safe_asset_path(source, path)
         if asset is None:
             return _json_response({"error": "asset not found"}, status_code=404)
