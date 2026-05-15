@@ -1134,7 +1134,7 @@ export function App() {
               h("input", {
                 value: docFilter,
                 onChange: (event) => setDocFilter(event.target.value),
-                placeholder: "검색"
+                placeholder: "파일 검색"
               }),
               h("div", { className: "explorer-action-row" },
                 h("button", {
@@ -1636,7 +1636,7 @@ export function App() {
                       rows: 1,
                       value: chatQuery,
                       onChange: (event) => setChatQuery(event.target.value),
-                      placeholder: "문서 기반으로 질문하기"
+                      placeholder: "저장된 문서를 기반으로 답해드립니다."
                     }),
                     h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변 중" : "질문하기")
                   ),
