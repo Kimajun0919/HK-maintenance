@@ -597,9 +597,13 @@ export function App() {
           setFmSelectedFiles(new Set());
         };
 
-        const downloadSelection = () => {
-          const foldersToDownload = fmSelectedFolder ? [] : [...fmSelectedFolders];
-          const filesToDownload = fmSelectedFolder ? [...fmSelectedFiles] : [];
+        const downloadSelection = (override = null) => {
+          const foldersToDownload = override
+            ? (override.folders || [])
+            : (fmSelectedFolder ? [] : [...fmSelectedFolders]);
+          const filesToDownload = override
+            ? (override.files || [])
+            : (fmSelectedFolder ? [...fmSelectedFiles] : []);
           if (foldersToDownload.length === 0 && filesToDownload.length === 0) {
             setError("다운로드할 폴더 또는 파일을 선택하세요.");
             return;
@@ -1384,6 +1388,7 @@ export function App() {
                             pinnedFolders.has(folder) ? "📌 고정 해제" : "📌 고정하기"
                           ),
                           h("button", { type: "button", onClick: () => { setExplorerMenu(null); startCreate(); setNewCustomer(folder); } }, "새 문서"),
+                          h("button", { type: "button", onClick: () => { setExplorerMenu(null); downloadSelection({ folders: [folder], files: [] }); } }, "다운로드"),
                           h("button", { type: "button", onClick: () => { setExplorerMenu(null); startRenameFolder(folder); } }, "이름 변경"),
                           h("button", { type: "button", className: "danger-text", onClick: () => { setExplorerMenu(null); deleteFolder(folder); } }, "삭제")
                         ),
@@ -1421,6 +1426,7 @@ export function App() {
                       }, "..."),
                       explorerMenu && explorerMenu.type === "doc" && explorerMenu.id === item.source && h("div", { className: "explorer-menu doc-menu" },
                         h("button", { type: "button", onClick: (event) => { event.stopPropagation(); setExplorerMenu(null); startRenameDocItem(item); } }, "이름 변경"),
+                        h("button", { type: "button", onClick: (event) => { event.stopPropagation(); setExplorerMenu(null); downloadSelection({ folders: [], files: [item.source] }); } }, "다운로드"),
                         h("button", { type: "button", className: "danger-text", onClick: (event) => { event.stopPropagation(); setExplorerMenu(null); deleteDocItem(item); } }, "삭제")
                       )
                     ))
