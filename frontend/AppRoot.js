@@ -551,7 +551,7 @@ export function App() {
         };
 
         const addBulkFiles = (fileList) => {
-          const accepted = Array.from(fileList).filter((f) => /\.(md|docx|pdf)$/i.test(f.name));
+          const accepted = Array.from(fileList).filter((f) => /\.(md|docx|pdf|xlsx)$/i.test(f.name));
           setBulkUploadItems((prev) => {
             const existing = new Set(prev.map((i) => i.file.name));
             const incoming = accepted
@@ -1340,9 +1340,9 @@ export function App() {
                 onDragLeave: (e) => e.currentTarget.classList.remove("drag-over"),
                 onDrop: (e) => { e.preventDefault(); e.currentTarget.classList.remove("drag-over"); addBulkFiles(e.dataTransfer.files); }
               },
-                h("input", { type: "file", multiple: true, accept: ".md,.docx,.pdf", style: { display: "none" }, onChange: (e) => { addBulkFiles(e.target.files); e.target.value = ""; } }),
+                h("input", { type: "file", multiple: true, accept: ".md,.docx,.pdf,.xlsx", style: { display: "none" }, onChange: (e) => { addBulkFiles(e.target.files); e.target.value = ""; } }),
                 h("span", { className: "bulk-drop-main" }, "파일을 끌어다 놓거나 클릭하여 선택"),
-                h("span", { className: "bulk-drop-hint" }, ".md · .docx · .pdf · 여러 파일 동시 선택 가능")
+                h("span", { className: "bulk-drop-hint" }, ".md · .docx · .pdf · .xlsx · 여러 파일 동시 선택 가능")
               ),
 
               bulkUploadItems.length > 0 && h("div", { className: "bulk-file-list" },

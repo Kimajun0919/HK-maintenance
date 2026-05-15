@@ -31,7 +31,7 @@ from config import (
     SUPABASE_META_TABLE,
     USE_LLM,
 )
-from converters import _convert_docx_to_md, _convert_pdf_to_md
+from converters import _convert_docx_to_md, _convert_pdf_to_md, _convert_xlsx_to_md
 from models import AssetRecord, DocRecord, FolderRecord
 
 from storage import (
@@ -963,8 +963,10 @@ def create_api_app():
             return _json_response({"error": "file is required"}, status_code=400)
         filename = str(upload.filename or "")
         ext = Path(filename).suffix.lower()
-        if ext not in {".md", ".docx", ".pdf"}:
-            return _json_response({"error": ".md, .docx, .pdf 파일만 지원합니다."}, status_code=400)
+        if ext not in {".md", ".docx", ".pdf", ".xlsx", ".xls"}:
+            return _json_response({"error": ".md, .docx, .pdf, .xlsx 파일만 지원합니다."}, status_code=400)
+        if ext == ".xls":
+            return _json_response({"error": ".xls 형식은 지원하지 않습니다. Excel에서 .xlsx로 저장 후 업로드하세요."}, status_code=400)
         raw = await upload.read()
         if not raw:
             return _json_response({"error": "파일이 비어 있습니다."}, status_code=400)
@@ -972,6 +974,8 @@ def create_api_app():
             content = raw.decode("utf-8", errors="replace")
         elif ext == ".docx":
             content = _convert_docx_to_md(raw)
+        elif ext == ".xlsx":
+            content = _convert_xlsx_to_md(raw)
         else:
             content = _convert_pdf_to_md(raw)
         title = Path(filename).stem
