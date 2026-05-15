@@ -2,8 +2,6 @@ services:
   - type: web
     name: hk-maintenance-rag
     runtime: docker
-    dockerfilePath: ./rag_chatbot/Dockerfile
-    dockerContext: ./rag_chatbot
     plan: free
     region: singapore
     envVars:
