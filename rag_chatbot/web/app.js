@@ -215,6 +215,8 @@ const h = React.createElement;
         const [showCreate, setShowCreate] = React.useState(false);
         const [showFolderCreate, setShowFolderCreate] = React.useState(false);
         const [newFolderName, setNewFolderName] = React.useState("");
+        const [folderPickerMode, setFolderPickerMode] = React.useState("");
+        const [folderPickerNewName, setFolderPickerNewName] = React.useState("");
         const [renamingFolder, setRenamingFolder] = React.useState("");
         const [renameFolderName, setRenameFolderName] = React.useState("");
         const [showRenameDoc, setShowRenameDoc] = React.useState(false);
@@ -237,6 +239,9 @@ const h = React.createElement;
         const [rightWidth, setRightWidth] = React.useState(() => Number(localStorage.getItem("hk.rightWidth")) || 360);
         const [leftCollapsed, setLeftCollapsed] = React.useState(() => localStorage.getItem("hk.leftCollapsed") === "1");
         const [rightCollapsed, setRightCollapsed] = React.useState(() => localStorage.getItem("hk.rightCollapsed") === "1");
+        const [explorerMenu, setExplorerMenu] = React.useState(null);
+        const [draggedDocSource, setDraggedDocSource] = React.useState("");
+        const [draggedFolderName, setDraggedFolderName] = React.useState("");
         const [draggingSide, setDraggingSide] = React.useState("");
         const [loading, setLoading] = React.useState("");
         const [error, setError] = React.useState("");
@@ -371,6 +376,47 @@ const h = React.createElement;
           setOpenFolders((prev) => ({ ...prev, [folder]: !prev[folder] }));
         };
 
+        const openFolderPicker = (mode) => {
+          setFolderPickerMode(mode);
+          setFolderPickerNewName("");
+        };
+
+        const closeFolderPicker = () => {
+          setFolderPickerMode("");
+          setFolderPickerNewName("");
+        };
+
+        const chooseFolder = (name) => {
+          if (folderPickerMode === "new-doc") setNewCustomer(name);
+          if (folderPickerMode === "rename-doc") setRenameDocFolder(name);
+          setOpenFolders((prev) => ({ ...prev, [name]: true }));
+          closeFolderPicker();
+        };
+
+        const createFolderFromPicker = (event) => {
+          event && event.preventDefault();
+          const name = folderPickerNewName.trim();
+          if (!name) return;
+          setLoading("folder");
+          setError("");
+          api("/api/folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          })
+            .then(() => {
+              if (folderPickerMode === "new-doc") setNewCustomer(name);
+              if (folderPickerMode === "rename-doc") setRenameDocFolder(name);
+              setShowFolderCreate(false);
+              setNewFolderName("");
+              setOpenFolders((prev) => ({ ...prev, [name]: true }));
+              closeFolderPicker();
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
         const createFolder = (event) => {
           event && event.preventDefault();
           if (!newFolderName.trim()) return;
@@ -477,6 +523,54 @@ const h = React.createElement;
             .finally(() => setLoading(""));
         };
 
+        const moveDocToFolder = (source, folder) => {
+          const item = docs.find((entry) => entry.source === source);
+          if (!item || !folder || item.customer === folder) return;
+          setLoading("rename");
+          setError("");
+          api("/api/doc/rename", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source, folder, title: item.title }),
+          })
+            .then((data) => {
+              if (doc && doc.source === source) {
+                setDoc(data);
+                setDraft(data.content || "");
+                setSelected(data.source);
+              }
+              setOpenFolders((prev) => ({ ...prev, [folder]: true }));
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => {
+              setDraggedDocSource("");
+              setLoading("");
+            });
+        };
+
+        const reorderFolder = (targetFolder) => {
+          if (!draggedFolderName || draggedFolderName === targetFolder) return;
+          const names = groupedDocs.map(([folder]) => folder);
+          const from = names.indexOf(draggedFolderName);
+          const to = names.indexOf(targetFolder);
+          if (from < 0 || to < 0) return;
+          names.splice(to, 0, names.splice(from, 1)[0]);
+          setDocSort("custom");
+          setLoading("folder");
+          api("/api/folders/order", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ folders: names }),
+          })
+            .then(() => loadDocs())
+            .catch((err) => setError(err.message))
+            .finally(() => {
+              setDraggedFolderName("");
+              setLoading("");
+            });
+        };
+
         const runSearch = (event) => {
           event && event.preventDefault();
           const term = searchQuery.trim();
@@ -577,6 +671,37 @@ const h = React.createElement;
             .finally(() => setLoading(""));
         };
 
+        const startRenameDocItem = (item) => {
+          setDoc((prev) => prev && prev.source === item.source ? prev : { source: item.source, title: item.title, content: "" });
+          setSelected(item.source);
+          setRenameDocFolder(item.customer || "");
+          setRenameDocTitle(item.title || "");
+          setShowRenameDoc(true);
+          setEditMode(false);
+        };
+
+        const deleteDocItem = (item) => {
+          if (!confirm("문서를 삭제할까요?")) return;
+          setLoading("delete");
+          setError("");
+          api("/api/doc", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source: item.source }),
+          })
+            .then(() => {
+              if (doc && doc.source === item.source) {
+                setDoc(null);
+                setDraft("");
+                setSelected("");
+                setEditMode(false);
+              }
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
         const deleteDoc = () => {
           if (!doc) return;
           if (!confirm("이 문서를 삭제할까요? 삭제 후에는 현재 배포 파일 기준으로 복구해야 합니다.")) return;
@@ -607,8 +732,36 @@ const h = React.createElement;
 
         return h("div", {
           className: "app " + (leftCollapsed ? "left-collapsed " : "") + (rightCollapsed ? "right-collapsed" : ""),
-          style: appStyle
+          style: appStyle,
+          onClick: () => explorerMenu && setExplorerMenu(null)
         },
+          folderPickerMode && h("div", { className: "modal-backdrop", onMouseDown: closeFolderPicker },
+            h("section", { className: "folder-modal", onMouseDown: (event) => event.stopPropagation() },
+              h("header", null,
+                h("strong", null, folderPickerMode === "sidebar" ? "새 폴더" : "폴더 선택"),
+                h("button", { type: "button", className: "icon-button", onClick: closeFolderPicker }, "x")
+              ),
+              folderPickerMode !== "sidebar" && h("div", { className: "folder-picker-list" },
+                folders.map((folder) => h("button", {
+                  key: folder.name,
+                  type: "button",
+                  className: "folder-choice",
+                  onClick: () => chooseFolder(folder.name)
+                },
+                  h("strong", null, folder.name),
+                  h("span", null, `${folder.docCount || 0} documents`)
+                ))
+              ),
+              h("form", { className: "folder-create-row", onSubmit: createFolderFromPicker },
+                h("input", {
+                  value: folderPickerNewName,
+                  onChange: (event) => setFolderPickerNewName(event.target.value),
+                  placeholder: "새 폴더명"
+                }),
+                h("button", { type: "submit", className: "primary" }, loading === "folder" ? "생성 중" : "생성")
+              )
+            )
+          ),
           h("nav", { className: "side-rail left-rail", "aria-label": "왼쪽 메뉴" },
             h("button", {
               type: "button",
@@ -625,9 +778,9 @@ const h = React.createElement;
             h("div", { className: "rail-spacer" })
           ),
           h("aside", { className: "left-sidebar" },
-            h("div", { className: "brand" },
+            h("div", { className: "brand explorer-head" },
               h("div", { className: "panel-title-row" },
-                h("h1", null, "HK Maintenance Portal"),
+                h("h1", null, "Explorer"),
                 h("div", { className: "panel-actions" },
                   h("button", {
                     type: "button",
@@ -681,7 +834,7 @@ const h = React.createElement;
               }, "새 문서"),
               h("button", {
                 type: "button",
-                onClick: () => setShowFolderCreate((value) => !value),
+                onClick: () => openFolderPicker("sidebar"),
                 style: { marginTop: "8px", width: "100%", minHeight: "34px" }
               }, "새 폴더")
             ),
@@ -699,7 +852,17 @@ const h = React.createElement;
                         h("button", { type: "button", onClick: () => setRenamingFolder("") }, "취소"),
                         h("button", { type: "submit", className: "primary" }, "저장")
                       )
-                    : h("div", { className: "folder-row" },
+                    : h("div", {
+                        className: "folder-row",
+                        draggable: true,
+                        onDragStart: () => setDraggedFolderName(folder),
+                        onDragEnd: () => setDraggedFolderName(""),
+                        onDragOver: (event) => event.preventDefault(),
+                        onDrop: () => {
+                          if (draggedDocSource) moveDocToFolder(draggedDocSource, folder);
+                          else reorderFolder(folder);
+                        }
+                      },
                         h("button", {
                           className: "folder-toggle " + (isOpen ? "open" : ""),
                           onClick: () => toggleFolder(folder)
@@ -708,15 +871,50 @@ const h = React.createElement;
                           h("strong", null, folder),
                           h("span", null, items.length)
                         ),
-                        h("button", { type: "button", className: "mini-button", title: "폴더명 수정", onClick: () => startRenameFolder(folder) }, "수정"),
-                        h("button", { type: "button", className: "mini-button danger-text", title: "빈 폴더 삭제", onClick: () => deleteFolder(folder) }, "삭제")
+                        h("button", {
+                          type: "button",
+                          className: "kebab-button",
+                          title: "폴더 작업",
+                          onClick: (event) => {
+                            event.stopPropagation();
+                            setExplorerMenu(explorerMenu && explorerMenu.type === "folder" && explorerMenu.id === folder ? null : { type: "folder", id: folder });
+                          }
+                        }, "..."),
+                        explorerMenu && explorerMenu.type === "folder" && explorerMenu.id === folder && h("div", { className: "explorer-menu" },
+                          h("button", { type: "button", onClick: () => { setExplorerMenu(null); startCreate(); setNewCustomer(folder); } }, "새 문서"),
+                          h("button", { type: "button", onClick: () => { setExplorerMenu(null); startRenameFolder(folder); } }, "이름 변경"),
+                          h("button", { type: "button", className: "danger-text", onClick: () => { setExplorerMenu(null); deleteFolder(folder); } }, "삭제")
+                        )
                       ),
                   isOpen && h("div", { className: "doc-group" },
-                    items.map((item) => h("button", {
+                    items.map((item) => h("div", {
                       key: item.source,
                       className: "doc-item " + (selected === item.source ? "selected" : ""),
-                      onClick: () => openDoc(item.source)
-                    }, h("strong", null, item.title), h("span", null, item.source)))
+                      role: "button",
+                      tabIndex: 0,
+                      draggable: true,
+                      onDragStart: (event) => {
+                        event.stopPropagation();
+                        setDraggedDocSource(item.source);
+                      },
+                      onDragEnd: () => setDraggedDocSource(""),
+                      onClick: () => openDoc(item.source),
+                      onKeyDown: (event) => { if (event.key === "Enter") openDoc(item.source); }
+                    },
+                      h("strong", null, item.title),
+                      h("span", null, item.source),
+                      h("i", {
+                        className: "doc-menu-trigger",
+                        onClick: (event) => {
+                          event.stopPropagation();
+                          setExplorerMenu(explorerMenu && explorerMenu.type === "doc" && explorerMenu.id === item.source ? null : { type: "doc", id: item.source });
+                        }
+                      }, "..."),
+                      explorerMenu && explorerMenu.type === "doc" && explorerMenu.id === item.source && h("div", { className: "explorer-menu doc-menu" },
+                        h("button", { type: "button", onClick: (event) => { event.stopPropagation(); setExplorerMenu(null); startRenameDocItem(item); } }, "이름 변경"),
+                        h("button", { type: "button", className: "danger-text", onClick: (event) => { event.stopPropagation(); setExplorerMenu(null); deleteDocItem(item); } }, "삭제")
+                      )
+                    ))
                   )
                 );
               }),
@@ -758,11 +956,14 @@ const h = React.createElement;
                 h("header", null, "새 문서 만들기"),
                 h("form", { className: "create-form", onSubmit: createDoc },
                   h("div", { className: "form-grid" },
-                    h("input", {
-                      value: newCustomer,
-                      onChange: (event) => setNewCustomer(event.target.value),
-                      placeholder: "폴더/고객명"
-                    }),
+                    h("button", {
+                      type: "button",
+                      className: "folder-select",
+                      onClick: () => openFolderPicker("new-doc")
+                    },
+                      h("span", null, "폴더"),
+                      h("strong", null, newCustomer || "선택")
+                    ),
                     h("input", {
                       value: newTitle,
                       onChange: (event) => setNewTitle(event.target.value),
@@ -785,11 +986,14 @@ const h = React.createElement;
                 h("header", null, "파일명/폴더 수정"),
                 h("form", { className: "create-form", onSubmit: renameDoc },
                   h("div", { className: "form-grid" },
-                    h("input", {
-                      value: renameDocFolder,
-                      onChange: (event) => setRenameDocFolder(event.target.value),
-                      placeholder: "폴더명"
-                    }),
+                    h("button", {
+                      type: "button",
+                      className: "folder-select",
+                      onClick: () => openFolderPicker("rename-doc")
+                    },
+                      h("span", null, "폴더"),
+                      h("strong", null, renameDocFolder || "선택")
+                    ),
                     h("input", {
                       value: renameDocTitle,
                       onChange: (event) => setRenameDocTitle(event.target.value),
