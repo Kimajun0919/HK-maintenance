@@ -1968,15 +1968,10 @@ def create_api_app():
     return api_app
 
 
-app = create_api_app() if demo is not None else None
+app = create_api_app()
 
 
 if __name__ == "__main__":
-    if demo is None:
-        raise SystemExit("gradio가 설치되어 있지 않습니다. `pip install -r requirements.txt`를 실행하세요.")
-    if app is None:
-        demo.launch(ssr_mode=False)
-    else:
-        import uvicorn
+    import uvicorn
 
-        uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("APP_PORT", "7860")))
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("APP_PORT", "7860")))
