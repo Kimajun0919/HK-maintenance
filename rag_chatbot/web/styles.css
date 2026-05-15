@@ -203,6 +203,12 @@
       .folder {
         margin-bottom: 6px;
       }
+      .folder-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 4px;
+        align-items: center;
+      }
       .folder-toggle {
         width: 100%;
         min-height: 34px;
@@ -229,6 +235,39 @@
       }
       .folder-toggle span {
         color: var(--muted);
+        font-size: 12px;
+      }
+      .mini-button {
+        min-height: 30px;
+        padding: 0 7px;
+        font-size: 12px;
+      }
+      .danger-text {
+        color: #991b1b;
+        border-color: #fecaca;
+      }
+      .danger-text:hover {
+        background: #fff1f2;
+      }
+      .inline-form,
+      .folder-rename {
+        display: grid;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .inline-actions,
+      .folder-rename {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+      }
+      .inline-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+      .inline-actions button,
+      .folder-rename button {
+        min-height: 30px;
+        padding: 0 9px;
         font-size: 12px;
       }
       .doc-group {

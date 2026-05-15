@@ -36,10 +36,13 @@ SUPABASE_AUTO_MIGRATE = os.getenv("SUPABASE_AUTO_MIGRATE", "1") != "0"
 SUPABASE_SEED_FROM_FILES = os.getenv("SUPABASE_SEED_FROM_FILES", "1") != "0"
 SUPABASE_DOCS_TABLE = os.getenv("SUPABASE_DOCS_TABLE", "maintenance_docs")
 SUPABASE_ASSETS_TABLE = os.getenv("SUPABASE_ASSETS_TABLE", f"{SUPABASE_DOCS_TABLE}_assets")
+SUPABASE_FOLDERS_TABLE = os.getenv("SUPABASE_FOLDERS_TABLE", f"{SUPABASE_DOCS_TABLE}_folders")
 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SUPABASE_DOCS_TABLE):
     raise ValueError("SUPABASE_DOCS_TABLE must be a simple SQL identifier")
 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SUPABASE_ASSETS_TABLE):
     raise ValueError("SUPABASE_ASSETS_TABLE must be a simple SQL identifier")
+if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SUPABASE_FOLDERS_TABLE):
+    raise ValueError("SUPABASE_FOLDERS_TABLE must be a simple SQL identifier")
 
 
 QUERY_ALIASES = {
@@ -85,6 +88,12 @@ class AssetRecord:
     content: bytes
 
 
+@dataclass
+class FolderRecord:
+    name: str
+    sort_order: int
+
+
 def _file_doc_records() -> list[DocRecord]:
     if not DOCS_DIR.exists():
         return []
@@ -120,6 +129,13 @@ def _file_asset_records() -> list[AssetRecord]:
         mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         records.append(AssetRecord(path=rel, mime_type=mime_type, content=path.read_bytes()))
     return records
+
+
+def _file_folder_records() -> list[FolderRecord]:
+    names = {record.customer for record in _file_doc_records() if record.customer}
+    if DOCS_DIR.exists():
+        names.update(path.name for path in DOCS_DIR.iterdir() if path.is_dir())
+    return [FolderRecord(name=name, sort_order=idx) for idx, name in enumerate(sorted(names, key=lambda value: value.lower()))]
 
 
 def _db_connect():
@@ -165,6 +181,18 @@ def _init_supabase_storage() -> None:
                     """
                 )
                 cur.execute(f"create index if not exists {SUPABASE_ASSETS_TABLE}_updated_at_idx on {SUPABASE_ASSETS_TABLE} (updated_at desc)")
+                cur.execute(
+                    f"""
+                    create table if not exists {SUPABASE_FOLDERS_TABLE} (
+                        id bigserial primary key,
+                        name text not null unique,
+                        sort_order integer not null default 0,
+                        created_at timestamptz not null default now(),
+                        updated_at timestamptz not null default now()
+                    )
+                    """
+                )
+                cur.execute(f"create index if not exists {SUPABASE_FOLDERS_TABLE}_sort_order_idx on {SUPABASE_FOLDERS_TABLE} (sort_order, name)")
             if SUPABASE_SEED_FROM_FILES:
                 cur.execute(f"select count(*) from {SUPABASE_DOCS_TABLE}")
                 count = cur.fetchone()[0]
@@ -179,6 +207,16 @@ def _init_supabase_storage() -> None:
                             """,
                             rows,
                         )
+                folder_rows = [(record.customer,) for record in _file_doc_records() if record.customer]
+                if folder_rows:
+                    cur.executemany(
+                        f"""
+                        insert into {SUPABASE_FOLDERS_TABLE} (name)
+                        values (%s)
+                        on conflict (name) do nothing
+                        """,
+                        folder_rows,
+                    )
                 cur.execute(f"select count(*) from {SUPABASE_ASSETS_TABLE}")
                 asset_count = cur.fetchone()[0]
                 if asset_count == 0:
@@ -233,6 +271,105 @@ def _db_asset_record(path: str) -> AssetRecord | None:
             if row is None:
                 return None
             return AssetRecord(path=row[0], mime_type=row[1], content=bytes(row[2]))
+
+
+def _db_folder_records() -> list[FolderRecord]:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select name, sort_order from {SUPABASE_FOLDERS_TABLE} order by sort_order, name")
+            return [FolderRecord(name=row[0], sort_order=row[1]) for row in cur.fetchall()]
+
+
+def _db_folder_exists(name: str) -> bool:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select 1 from {SUPABASE_FOLDERS_TABLE} where name = %s", (name,))
+            return cur.fetchone() is not None
+
+
+def _db_folder_doc_count(name: str) -> int:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select count(*) from {SUPABASE_DOCS_TABLE} where customer = %s", (name,))
+            return cur.fetchone()[0]
+
+
+def _db_create_folder(name: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select coalesce(max(sort_order), -1) + 1 from {SUPABASE_FOLDERS_TABLE}")
+            sort_order = cur.fetchone()[0]
+            cur.execute(
+                f"""
+                insert into {SUPABASE_FOLDERS_TABLE} (name, sort_order)
+                values (%s, %s)
+                """,
+                (name, sort_order),
+            )
+
+
+def _db_update_folder_order(names: list[str]) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            for idx, name in enumerate(names):
+                cur.execute(
+                    f"update {SUPABASE_FOLDERS_TABLE} set sort_order = %s, updated_at = now() where name = %s",
+                    (idx, name),
+                )
+
+
+def _db_rename_folder(old_name: str, new_name: str) -> None:
+    old_prefix = f"{old_name}/"
+    new_prefix = f"{new_name}/"
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"update {SUPABASE_FOLDERS_TABLE} set name = %s, updated_at = now() where name = %s",
+                (new_name, old_name),
+            )
+            cur.execute(
+                f"""
+                update {SUPABASE_DOCS_TABLE}
+                set source = %s || substring(source from %s),
+                    customer = %s,
+                    updated_at = now()
+                where source like %s
+                """,
+                (new_prefix, len(old_prefix) + 1, new_name, f"{old_prefix}%"),
+            )
+            cur.execute(
+                f"""
+                update {SUPABASE_ASSETS_TABLE}
+                set path = %s || substring(path from %s),
+                    updated_at = now()
+                where path like %s
+                """,
+                (new_prefix, len(old_prefix) + 1, f"{old_prefix}%"),
+            )
+
+
+def _db_delete_folder(name: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"delete from {SUPABASE_FOLDERS_TABLE} where name = %s", (name,))
+
+
+def _db_rename_doc(source: str, new_source: str, title: str, customer: str) -> DocRecord:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                update {SUPABASE_DOCS_TABLE}
+                set source = %s, title = %s, customer = %s, updated_at = now()
+                where source = %s
+                returning source, title, customer, content
+                """,
+                (new_source, title, customer, source),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise ValueError("document not found")
+            return DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3])
 
 
 def _db_doc_record(source: str) -> DocRecord | None:
@@ -887,6 +1024,29 @@ def _safe_new_doc_path(source: str) -> Path | None:
     return path
 
 
+def _safe_source_value(source: str, require_md: bool = True) -> str | None:
+    normalized = urllib.parse.unquote(str(source or "")).replace("\\", "/").strip("/")
+    if not normalized or normalized.startswith(".") or "/." in normalized:
+        return None
+    parts = PurePosixPath(normalized).parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        return None
+    if require_md and not normalized.lower().endswith(".md"):
+        normalized += ".md"
+    if PurePosixPath(normalized).name in {"README.md", "SIMPLIFY_CHANGELOG.md", "SIMPLIFY_VALIDATION_REPORT.md"}:
+        return None
+    return normalized
+
+
+def _safe_folder_name(name: str) -> str | None:
+    normalized = _slug_part(str(name or "").strip(), "")
+    if not normalized or "/" in normalized or "\\" in normalized:
+        return None
+    if normalized.startswith(".") or normalized in {".", ".."}:
+        return None
+    return normalized
+
+
 def _slug_part(value: str, fallback: str = "document") -> str:
     value = re.sub(r'[<>:"|?*\x00-\x1f]+', "", str(value or "")).strip()
     value = value.replace("\\", "/").split("/")[-1].strip()
@@ -1021,6 +1181,20 @@ def docs_index() -> list[dict[str, str]]:
     return items
 
 
+def folders_index() -> list[dict[str, str | int]]:
+    records = _db_folder_records() if SUPABASE_ENABLED else _file_folder_records()
+    doc_counts: Counter[str] = Counter(record.customer for record in _doc_records())
+    seen = {record.name for record in records}
+    for folder in sorted(doc_counts):
+        if folder and folder not in seen:
+            records.append(FolderRecord(name=folder, sort_order=len(records)))
+            seen.add(folder)
+    return [
+        {"name": record.name, "sortOrder": record.sort_order, "docCount": doc_counts.get(record.name, 0)}
+        for record in records
+    ]
+
+
 def create_api_app():
     from fastapi import FastAPI, Query
     from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
@@ -1055,7 +1229,110 @@ def create_api_app():
 
     @api_app.get("/api/docs")
     def api_docs():
-        return {"docs": docs_index()}
+        return {"docs": docs_index(), "folders": folders_index()}
+
+    @api_app.get("/api/folders")
+    def api_folders():
+        return {"folders": folders_index()}
+
+    @api_app.post("/api/folder")
+    async def api_create_folder(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        name = _safe_folder_name(str(payload.get("name", "")))
+        if not name:
+            return _json_response({"error": "invalid folder name"}, status_code=400)
+        if SUPABASE_ENABLED:
+            if _db_folder_exists(name):
+                return _json_response({"error": "folder already exists"}, status_code=409)
+            _db_create_folder(name)
+        else:
+            path = (DOCS_DIR / name).resolve()
+            try:
+                path.relative_to(DOCS_DIR)
+            except ValueError:
+                return _json_response({"error": "invalid folder name"}, status_code=400)
+            if path.exists():
+                return _json_response({"error": "folder already exists"}, status_code=409)
+            path.mkdir(parents=True)
+        return {"folder": name}
+
+    @api_app.put("/api/folder")
+    async def api_update_folder(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        old_name = _safe_folder_name(str(payload.get("name", "")))
+        new_name = _safe_folder_name(str(payload.get("newName", "")))
+        if not old_name or not new_name:
+            return _json_response({"error": "invalid folder name"}, status_code=400)
+        if old_name == new_name:
+            return {"folder": new_name}
+        if SUPABASE_ENABLED:
+            if not _db_folder_exists(old_name):
+                return _json_response({"error": "folder not found"}, status_code=404)
+            if _db_folder_exists(new_name):
+                return _json_response({"error": "folder already exists"}, status_code=409)
+            _db_rename_folder(old_name, new_name)
+        else:
+            old_path = (DOCS_DIR / old_name).resolve()
+            new_path = (DOCS_DIR / new_name).resolve()
+            try:
+                old_path.relative_to(DOCS_DIR)
+                new_path.relative_to(DOCS_DIR)
+            except ValueError:
+                return _json_response({"error": "invalid folder name"}, status_code=400)
+            if not old_path.exists() or not old_path.is_dir():
+                return _json_response({"error": "folder not found"}, status_code=404)
+            if new_path.exists():
+                return _json_response({"error": "folder already exists"}, status_code=409)
+            old_path.rename(new_path)
+        refresh_index()
+        return {"folder": new_name}
+
+    @api_app.put("/api/folders/order")
+    async def api_update_folder_order(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        names = [_safe_folder_name(str(name)) for name in payload.get("folders", [])]
+        if not names or any(name is None for name in names):
+            return _json_response({"error": "invalid folder order"}, status_code=400)
+        if SUPABASE_ENABLED:
+            _db_update_folder_order([str(name) for name in names])
+        return {"folders": folders_index()}
+
+    @api_app.delete("/api/folder")
+    async def api_delete_folder(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        name = _safe_folder_name(str(payload.get("name", "")))
+        if not name:
+            return _json_response({"error": "invalid folder name"}, status_code=400)
+        if SUPABASE_ENABLED:
+            if not _db_folder_exists(name):
+                return _json_response({"error": "folder not found"}, status_code=404)
+            if _db_folder_doc_count(name) > 0:
+                return _json_response({"error": "folder is not empty"}, status_code=409)
+            _db_delete_folder(name)
+        else:
+            path = (DOCS_DIR / name).resolve()
+            try:
+                path.relative_to(DOCS_DIR)
+            except ValueError:
+                return _json_response({"error": "invalid folder name"}, status_code=400)
+            if not path.exists() or not path.is_dir():
+                return _json_response({"error": "folder not found"}, status_code=404)
+            if any(path.iterdir()):
+                return _json_response({"error": "folder is not empty"}, status_code=409)
+            path.rmdir()
+        return {"ok": True, "folder": name}
 
     @api_app.get("/api/doc")
     def api_doc(source: str = Query(...)):
@@ -1091,6 +1368,8 @@ def create_api_app():
         content = content.rstrip() + "\n"
         if SUPABASE_ENABLED:
             parts = Path(rel).parts
+            if parts and not _db_folder_exists(parts[0]):
+                _db_create_folder(parts[0])
             _db_create_doc(
                 DocRecord(
                     source=rel,
@@ -1137,6 +1416,51 @@ def create_api_app():
         path.write_text(content.rstrip() + "\n", encoding="utf-8", newline="\n")
         refresh_index()
         return {"source": source, "title": path.stem, "content": path.read_text(encoding="utf-8", errors="replace")}
+
+    @api_app.put("/api/doc/rename")
+    async def api_rename_doc(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        source = _safe_source_value(str(payload.get("source", "")))
+        folder = _safe_folder_name(str(payload.get("folder", "")))
+        title = _slug_part(str(payload.get("title", "")).strip(), "")
+        if not source or not folder or not title:
+            return _json_response({"error": "invalid document name"}, status_code=400)
+        new_source = _safe_source_value(f"{folder}/{title}.md")
+        if not new_source:
+            return _json_response({"error": "invalid document path"}, status_code=400)
+        if _is_system_source(source):
+            return _json_response({"error": "system document cannot be renamed"}, status_code=403)
+        if SUPABASE_ENABLED:
+            record = _db_doc_record(source)
+            if record is None:
+                return _json_response({"error": "document not found"}, status_code=404)
+            existing = _db_doc_record(new_source)
+            if existing is not None and new_source != source:
+                return _json_response({"error": "document already exists"}, status_code=409)
+            if not _db_folder_exists(folder):
+                _db_create_folder(folder)
+            renamed = _db_rename_doc(source, new_source, Path(new_source).stem, folder)
+            refresh_index()
+            return {"source": renamed.source, "title": renamed.title, "content": renamed.content}
+
+        path = _safe_doc_path(source)
+        if path is None:
+            return _json_response({"error": "document not found"}, status_code=404)
+        if _is_system_doc(path):
+            return _json_response({"error": "system document cannot be renamed"}, status_code=403)
+        new_path = _safe_new_doc_path(new_source)
+        if new_path is None:
+            return _json_response({"error": "invalid document path"}, status_code=400)
+        if new_path.exists() and new_path != path:
+            return _json_response({"error": "document already exists"}, status_code=409)
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        path.rename(new_path)
+        refresh_index()
+        rel = new_path.relative_to(DOCS_DIR).as_posix()
+        return {"source": rel, "title": new_path.stem, "content": new_path.read_text(encoding="utf-8", errors="replace")}
 
     @api_app.delete("/api/doc")
     async def api_delete_doc(request: Request):
