@@ -17,6 +17,24 @@ const h = React.createElement;
             h("path", { d: "M9 13h6" })
           );
         }
+        if (name === "grid-view") {
+          return h("svg", common,
+            h("rect", { x: 3, y: 3, width: 7, height: 7 }),
+            h("rect", { x: 14, y: 3, width: 7, height: 7 }),
+            h("rect", { x: 3, y: 14, width: 7, height: 7 }),
+            h("rect", { x: 14, y: 14, width: 7, height: 7 })
+          );
+        }
+        if (name === "list-view") {
+          return h("svg", common,
+            h("line", { x1: 8, y1: 6, x2: 21, y2: 6 }),
+            h("line", { x1: 8, y1: 12, x2: 21, y2: 12 }),
+            h("line", { x1: 8, y1: 18, x2: 21, y2: 18 }),
+            h("line", { x1: 3, y1: 6, x2: 3.01, y2: 6 }),
+            h("line", { x1: 3, y1: 12, x2: 3.01, y2: 12 }),
+            h("line", { x1: 3, y1: 18, x2: 3.01, y2: 18 })
+          );
+        }
         if (name === "folder") {
           return h("svg", common,
             h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
@@ -308,6 +326,7 @@ const h = React.createElement;
         const [fmDragFrom, setFmDragFrom] = React.useState("");
         const [fmDragOver, setFmDragOver] = React.useState("");
         const [fmSelectedFolder, setFmSelectedFolder] = React.useState(null);
+        const [fmViewMode, setFmViewMode] = React.useState("grid");
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -973,114 +992,130 @@ const h = React.createElement;
               ),
 
               h("div", { className: "fm-toolbar" },
-                fmSelectedFolder
-                  ? [
-                      h("button", { key: "newfile", type: "button", className: "fm-new-btn", onClick: () => { setFolderManagerOpen(false); setFmSelectedFolder(null); startCreate(); setNewCustomer(fmSelectedFolder); } }, "+ 새 파일"),
-                      h("span", { key: "count", className: "fm-toolbar-count" }, `파일 ${(groupedDocs.find(([f]) => f === fmSelectedFolder) || [null, []])[1].length}개`)
-                    ]
-                  : h("button", { type: "button", className: "fm-new-btn", onClick: () => { setFmCreating(true); setFmNewName(""); setFmRenaming(""); } }, "+ 새 폴더")
+                h("div", { className: "fm-toolbar-left" },
+                  fmSelectedFolder
+                    ? [
+                        h("button", { key: "newfile", type: "button", className: "fm-new-btn", onClick: () => { setFolderManagerOpen(false); setFmSelectedFolder(null); startCreate(); setNewCustomer(fmSelectedFolder); } }, "+ 새 파일"),
+                        h("span", { key: "count", className: "fm-toolbar-count" }, `파일 ${(groupedDocs.find(([f]) => f === fmSelectedFolder) || [null, []])[1].length}개`)
+                      ]
+                    : [
+                        h("button", { key: "newfolder", type: "button", className: "fm-new-btn", onClick: () => { setFmCreating(true); setFmNewName(""); setFmRenaming(""); } }, "+ 새 폴더"),
+                        h("span", { key: "count", className: "fm-toolbar-count" }, `폴더 ${folders.length}개`)
+                      ]
+                ),
+                h("div", { className: "fm-view-toggle" },
+                  h("button", { type: "button", className: "icon-button explorer-action" + (fmViewMode === "grid" ? " active" : ""), title: "그리드형", onClick: () => setFmViewMode("grid") }, h(Icon, { name: "grid-view" })),
+                  h("button", { type: "button", className: "icon-button explorer-action" + (fmViewMode === "list" ? " active" : ""), title: "리스트형", onClick: () => setFmViewMode("list") }, h(Icon, { name: "list-view" }))
+                )
               ),
 
-              fmSelectedFolder
-                ? h("div", { className: "fm-body" },
-                    (() => {
-                      const fileItems = (groupedDocs.find(([f]) => f === fmSelectedFolder) || [null, []])[1];
-                      if (fileItems.length === 0)
-                        return h("div", { className: "fm-empty" }, "이 폴더에 파일이 없습니다.");
-                      return fileItems.map((item) =>
-                        h("div", {
-                          key: item.source,
-                          className: "fm-card fm-file-card",
-                          onClick: () => { openDoc(item.source); setFolderManagerOpen(false); setFmSelectedFolder(null); }
-                        },
-                          h("div", { className: "fm-card-icon" },
-                            h("svg", { width: 44, height: 44, viewBox: "0 0 24 24", fill: "#e0f2fe", stroke: "#38bdf8", strokeWidth: 1, "aria-hidden": "true" },
-                              h("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }),
-                              h("path", { d: "M14 2v6h6" })
-                            )
-                          ),
-                          h("span", { className: "fm-card-name", title: item.title }, item.title),
-                          item.updatedAt && h("span", { className: "fm-card-count" }, new Date(item.updatedAt).toLocaleDateString("ko")),
-                          h("div", { className: "fm-card-actions", onClick: (e) => e.stopPropagation() },
+              (() => {
+                const fileSvg = (w) => h("svg", { width: w, height: w, viewBox: "0 0 24 24", fill: "#e0f2fe", stroke: "#38bdf8", strokeWidth: 1, "aria-hidden": "true" },
+                  h("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }),
+                  h("path", { d: "M14 2v6h6" })
+                );
+                const folderSvg = (w, pinned) => h("svg", { width: w, height: w, viewBox: "0 0 24 24", fill: pinned ? "#f59e0b" : "#60a5fa", stroke: pinned ? "#d97706" : "#3b82f6", strokeWidth: 1, "aria-hidden": "true" },
+                  h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
+                );
+                const dragHandle = (name) => h("span", {
+                  className: "fm-card-drag",
+                  draggable: true,
+                  title: "드래그하여 순서 변경",
+                  onClick: (e) => e.stopPropagation(),
+                  onDragStart: (e) => { e.stopPropagation(); setFmDragFrom(name); },
+                  onDragEnd: () => { setFmDragFrom(""); setFmDragOver(""); }
+                }, "⠿");
+
+                if (fmSelectedFolder) {
+                  const fileItems = (groupedDocs.find(([f]) => f === fmSelectedFolder) || [null, []])[1];
+                  if (fileItems.length === 0) return h("div", { className: "fm-body" }, h("div", { className: "fm-empty" }, "이 폴더에 파일이 없습니다."));
+                  if (fmViewMode === "list")
+                    return h("div", { className: "fm-list" },
+                      fileItems.map((item) =>
+                        h("div", { key: item.source, className: "fm-list-row", onClick: () => { openDoc(item.source); setFolderManagerOpen(false); setFmSelectedFolder(null); } },
+                          h("div", { className: "fm-list-icon" }, fileSvg(18)),
+                          h("span", { className: "fm-list-name", title: item.title }, item.title),
+                          h("span", { className: "fm-list-meta" }, item.source),
+                          item.updatedAt && h("span", { className: "fm-list-date" }, new Date(item.updatedAt).toLocaleDateString("ko")),
+                          h("div", { className: "fm-list-actions", onClick: (e) => e.stopPropagation() },
                             h("button", { type: "button", onClick: (e) => { e.stopPropagation(); setFolderManagerOpen(false); setFmSelectedFolder(null); startRenameDocItem(item); } }, "이름"),
                             h("button", { type: "button", className: "danger-text", onClick: (e) => { e.stopPropagation(); deleteDocItem(item); } }, "삭제")
                           )
                         )
-                      );
-                    })()
-                  )
-                : h("div", { className: "fm-body" },
-                    groupedDocs.map(([folderName, items]) => {
-                      const isPinned = pinnedFolders.has(folderName);
-                      const isRenaming = fmRenaming === folderName;
-                      return h("div", {
-                        key: folderName,
-                        className: "fm-card" + (isPinned ? " fm-pinned" : "") + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : ""),
-                        onClick: () => { if (!isRenaming && !fmDragFrom) setFmSelectedFolder(folderName); },
-                        onDragOver: (e) => { e.preventDefault(); if (fmDragFrom && fmDragFrom !== folderName) setFmDragOver(folderName); },
-                        onDragLeave: () => setFmDragOver(""),
-                        onDrop: (e) => { e.preventDefault(); fmReorder(folderName); }
-                      },
-                        h("div", { className: "fm-card-top" },
-                          h("span", {
-                            className: "fm-card-drag",
-                            draggable: true,
-                            title: "드래그하여 순서 변경",
-                            onClick: (e) => e.stopPropagation(),
-                            onDragStart: (e) => { e.stopPropagation(); setFmDragFrom(folderName); },
-                            onDragEnd: () => { setFmDragFrom(""); setFmDragOver(""); }
-                          }, "⠿")
-                        ),
-                        h("div", { className: "fm-card-icon" },
-                          h("svg", { width: 48, height: 48, viewBox: "0 0 24 24", fill: isPinned ? "#f59e0b" : "#60a5fa", stroke: isPinned ? "#d97706" : "#3b82f6", strokeWidth: 1, "aria-hidden": "true" },
-                            h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
-                          ),
-                          isPinned && h("span", { className: "fm-pin-badge" }, "📌")
-                        ),
-                        isRenaming
-                          ? h("form", { className: "fm-rename-form", onSubmit: fmSubmitRename, onClick: (e) => e.stopPropagation() },
-                              h("input", {
-                                className: "fm-rename-input",
-                                value: fmRenameValue,
-                                onChange: (e) => setFmRenameValue(e.target.value),
-                                autoFocus: true,
-                                onBlur: fmSubmitRename,
-                                onKeyDown: (e) => { if (e.key === "Escape") setFmRenaming(""); }
-                              })
-                            )
-                          : h("span", {
-                              className: "fm-card-name",
-                              title: folderName,
-                              onDoubleClick: (e) => { e.stopPropagation(); setFmRenaming(folderName); setFmRenameValue(folderName); }
-                            }, folderName),
-                        h("span", { className: "fm-card-count" }, `${items.length}개`),
+                      )
+                    );
+                  return h("div", { className: "fm-body" },
+                    fileItems.map((item) =>
+                      h("div", { key: item.source, className: "fm-card fm-file-card", onClick: () => { openDoc(item.source); setFolderManagerOpen(false); setFmSelectedFolder(null); } },
+                        h("div", { className: "fm-card-icon" }, fileSvg(44)),
+                        h("span", { className: "fm-card-name", title: item.title }, item.title),
+                        item.updatedAt && h("span", { className: "fm-card-count" }, new Date(item.updatedAt).toLocaleDateString("ko")),
                         h("div", { className: "fm-card-actions", onClick: (e) => e.stopPropagation() },
-                          h("button", { type: "button", onClick: () => togglePinFolder(folderName) }, isPinned ? "고정 해제" : "고정"),
-                          h("button", { type: "button", onClick: () => { setFmRenaming(folderName); setFmRenameValue(folderName); } }, "이름"),
-                          h("button", { type: "button", className: "danger-text", onClick: () => deleteFolder(folderName) }, "삭제")
+                          h("button", { type: "button", onClick: (e) => { e.stopPropagation(); setFolderManagerOpen(false); setFmSelectedFolder(null); startRenameDocItem(item); } }, "이름"),
+                          h("button", { type: "button", className: "danger-text", onClick: (e) => { e.stopPropagation(); deleteDocItem(item); } }, "삭제")
                         )
-                      );
-                    }),
-                    fmCreating && h("div", { className: "fm-card fm-creating" },
-                      h("div", { className: "fm-card-icon" },
-                        h("svg", { width: 48, height: 48, viewBox: "0 0 24 24", fill: "#e2e8f0", stroke: "#94a3b8", strokeWidth: 1, "aria-hidden": "true" },
-                          h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
-                        )
-                      ),
-                      h("form", { className: "fm-rename-form", onSubmit: fmSubmitCreate },
-                        h("input", {
-                          className: "fm-rename-input",
-                          value: fmNewName,
-                          placeholder: "폴더명",
-                          onChange: (e) => setFmNewName(e.target.value),
-                          autoFocus: true,
-                          onBlur: () => { if (!fmNewName.trim()) setFmCreating(false); else fmSubmitCreate(); },
-                          onKeyDown: (e) => { if (e.key === "Escape") { setFmCreating(false); setFmNewName(""); } }
-                        })
+                      )
+                    )
+                  );
+                }
+
+                const folderCards = groupedDocs.map(([folderName, items]) => {
+                  const isPinned = pinnedFolders.has(folderName);
+                  const isRenaming = fmRenaming === folderName;
+                  const dragProps = {
+                    onDragOver: (e) => { e.preventDefault(); if (fmDragFrom && fmDragFrom !== folderName) setFmDragOver(folderName); },
+                    onDragLeave: () => setFmDragOver(""),
+                    onDrop: (e) => { e.preventDefault(); fmReorder(folderName); }
+                  };
+                  const renameInput = h("form", { className: "fm-rename-form", onSubmit: fmSubmitRename, onClick: (e) => e.stopPropagation() },
+                    h("input", { className: "fm-rename-input", value: fmRenameValue, onChange: (e) => setFmRenameValue(e.target.value), autoFocus: true, onBlur: fmSubmitRename, onKeyDown: (e) => { if (e.key === "Escape") setFmRenaming(""); } })
+                  );
+                  const actions = h("div", { className: fmViewMode === "list" ? "fm-list-actions" : "fm-card-actions", onClick: (e) => e.stopPropagation() },
+                    h("button", { type: "button", onClick: () => togglePinFolder(folderName) }, isPinned ? "고정 해제" : "고정"),
+                    h("button", { type: "button", onClick: () => { setFmRenaming(folderName); setFmRenameValue(folderName); } }, "이름"),
+                    h("button", { type: "button", className: "danger-text", onClick: () => deleteFolder(folderName) }, "삭제")
+                  );
+
+                  if (fmViewMode === "list")
+                    return h("div", { key: folderName, className: "fm-list-row" + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : ""), onClick: () => { if (!isRenaming && !fmDragFrom) setFmSelectedFolder(folderName); }, ...dragProps },
+                      dragHandle(folderName),
+                      h("div", { className: "fm-list-icon" }, folderSvg(18, isPinned)),
+                      isPinned && h("span", { style: { fontSize: "11px" } }, "📌"),
+                      isRenaming ? renameInput : h("span", { className: "fm-list-name", title: folderName, onDoubleClick: (e) => { e.stopPropagation(); setFmRenaming(folderName); setFmRenameValue(folderName); } }, folderName),
+                      h("span", { className: "fm-list-date" }, `${items.length}개`),
+                      actions
+                    );
+
+                  return h("div", { key: folderName, className: "fm-card" + (isPinned ? " fm-pinned" : "") + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : ""), onClick: () => { if (!isRenaming && !fmDragFrom) setFmSelectedFolder(folderName); }, ...dragProps },
+                    h("div", { className: "fm-card-top" }, dragHandle(folderName)),
+                    h("div", { className: "fm-card-icon" }, folderSvg(48, isPinned), isPinned && h("span", { className: "fm-pin-badge" }, "📌")),
+                    isRenaming ? renameInput : h("span", { className: "fm-card-name", title: folderName, onDoubleClick: (e) => { e.stopPropagation(); setFmRenaming(folderName); setFmRenameValue(folderName); } }, folderName),
+                    h("span", { className: "fm-card-count" }, `${items.length}개`),
+                    actions
+                  );
+                });
+
+                if (fmViewMode === "list")
+                  return h("div", { className: "fm-list" },
+                    folderCards,
+                    groupedDocs.length === 0 && h("div", { className: "fm-empty" }, "폴더가 없습니다.")
+                  );
+
+                return h("div", { className: "fm-body" },
+                  folderCards,
+                  fmCreating && h("div", { className: "fm-card fm-creating" },
+                    h("div", { className: "fm-card-icon" },
+                      h("svg", { width: 48, height: 48, viewBox: "0 0 24 24", fill: "#e2e8f0", stroke: "#94a3b8", strokeWidth: 1, "aria-hidden": "true" },
+                        h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
                       )
                     ),
-                    groupedDocs.length === 0 && !fmCreating && h("div", { className: "fm-empty" }, "폴더가 없습니다.")
-                  )
+                    h("form", { className: "fm-rename-form", onSubmit: fmSubmitCreate },
+                      h("input", { className: "fm-rename-input", value: fmNewName, placeholder: "폴더명", onChange: (e) => setFmNewName(e.target.value), autoFocus: true, onBlur: () => { if (!fmNewName.trim()) setFmCreating(false); else fmSubmitCreate(); }, onKeyDown: (e) => { if (e.key === "Escape") { setFmCreating(false); setFmNewName(""); } } })
+                    )
+                  ),
+                  groupedDocs.length === 0 && !fmCreating && h("div", { className: "fm-empty" }, "폴더가 없습니다.")
+                );
+              })()
             )
           ),
 
