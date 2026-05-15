@@ -562,6 +562,20 @@ export function App() {
             .finally(() => setLoading(""));
         };
 
+        const compactSearchSnippet = (snippet, query) => {
+          const text = String(snippet || "").replace(/\s+/g, " ").trim();
+          if (!text) return "";
+          const terms = String(query || "")
+            .toLowerCase()
+            .split(/\s+/)
+            .filter((term) => term.length >= 2);
+          const lower = text.toLowerCase();
+          const hit = terms.map((term) => lower.indexOf(term)).filter((idx) => idx >= 0).sort((a, b) => a - b)[0];
+          const start = hit == null ? 0 : Math.max(0, hit - 42);
+          const excerpt = text.slice(start, start + 150).trim();
+          return (start > 0 ? "... " : "") + excerpt + (start + 150 < text.length ? " ..." : "");
+        };
+
         const askChat = (event) => {
           event && event.preventDefault();
           const term = chatQuery.trim();
@@ -1576,7 +1590,7 @@ export function App() {
                       },
                         h("strong", null, item.title),
                         h("p", null, item.source + " / score " + item.score),
-                        h("p", null, item.snippet)
+                        h("p", { className: "result-snippet" }, compactSearchSnippet(item.snippet, searchQuery))
                       ))
                     )
                   )
