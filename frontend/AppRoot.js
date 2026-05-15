@@ -1597,12 +1597,15 @@ export function App() {
                 )
               ] : [
                 h("form", { key: "question-form", className: "tool-form", onSubmit: askChat },
-                  h("textarea", {
-                    rows: 5,
-                    value: chatQuery,
-                    onChange: (event) => setChatQuery(event.target.value),
-                    placeholder: "문서 기반으로 질문하기"
-                  }),
+                  h("div", { className: "question-row" },
+                    h("textarea", {
+                      rows: 1,
+                      value: chatQuery,
+                      onChange: (event) => setChatQuery(event.target.value),
+                      placeholder: "문서 기반으로 질문하기"
+                    }),
+                    h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변 중" : "질문하기")
+                  ),
                   h("div", { className: "ap-selector-row" },
                     h("select", {
                       value: activeProviderId,
@@ -1624,8 +1627,7 @@ export function App() {
                       h("input", { type: "checkbox", checked: useLlm, onChange: (event) => setUseLlm(event.target.checked) }),
                       "LLM 답변"
                     )
-                  ),
-                  h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변 중" : "질문하기")
+                  )
                 ),
                 chatAnswer && h("div", { key: "question-split", className: "search-split" },
                   h("section", { className: "search-pane" },

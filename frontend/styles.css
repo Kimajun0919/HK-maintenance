@@ -1300,6 +1300,22 @@
         grid-template-columns: minmax(0, 1fr) 74px;
         gap: 8px;
       }
+      .question-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 88px;
+        gap: 8px;
+        align-items: start;
+      }
+      .question-row textarea {
+        min-height: 38px;
+        max-height: 68px;
+        resize: none;
+        overflow-y: auto;
+        line-height: 1.45;
+      }
+      .question-row button {
+        height: 38px;
+      }
       .toolbar {
         display: grid;
         grid-template-columns: 96px minmax(0, 1fr);
