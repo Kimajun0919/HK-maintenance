@@ -1021,7 +1021,20 @@ def create_api_app():
             response = rag.immediate_answer(query, top_k)
         else:
             response = rag.llm_answer(query, top_k) if USE_LLM else rag.immediate_answer(query, top_k)
-        return {"query": query, "answer": response}
+        results, _context = rag.retrieve(query, top_k)
+        return {
+            "query": query,
+            "answer": response,
+            "results": [
+                {
+                    "source": chunk.source,
+                    "title": chunk.title,
+                    "score": round(score, 4),
+                    "snippet": re.sub(r"\s+", " ", chunk.text).strip()[:700],
+                }
+                for chunk, score in results
+            ],
+        }
 
     @api_app.get("/robots.txt")
     def robots_txt():

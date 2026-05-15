@@ -34,6 +34,7 @@ export function App() {
         const [search, setSearch] = React.useState(null);
         const [chatQuery, setChatQuery] = React.useState("");
         const [chatAnswer, setChatAnswer] = React.useState("");
+        const [chatResults, setChatResults] = React.useState([]);
         const [topK, setTopK] = React.useState(5);
         const [apiProviders, setApiProviders] = React.useState(() => {
           try { return JSON.parse(localStorage.getItem("hk.apiProviders") || "[]"); } catch { return []; }
@@ -600,7 +601,10 @@ export function App() {
               })(),
             }),
           })
-            .then((data) => setChatAnswer(data.answer || ""))
+            .then((data) => {
+              setChatAnswer(data.answer || "");
+              setChatResults(data.results || []);
+            })
             .catch((err) => setError(err.message))
             .finally(() => setLoading(""));
         };
@@ -1630,7 +1634,27 @@ export function App() {
                   ),
                   h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변 중" : "질문하기")
                 ),
-                chatAnswer && h("div", { key: "question-answer", className: "answer" }, h(Markdown, { text: chatAnswer }))
+                chatAnswer && h("div", { key: "question-split", className: "search-split" },
+                  h("section", { className: "search-pane" },
+                    h("div", { className: "section-title" }, "AI 답변"),
+                    h("div", { className: "answer search-answer" }, h(Markdown, { text: chatAnswer }))
+                  ),
+                  h("section", { className: "search-pane" },
+                    h("div", { className: "section-title" }, "참고자료"),
+                    h("div", { className: "search-results" },
+                      chatResults.map((item) => h("button", {
+                        key: item.source + item.title,
+                        className: "result-item",
+                        onClick: () => openDoc(item.source)
+                      },
+                        h("strong", null, item.title),
+                        h("p", null, item.source + " / score " + item.score),
+                        h("p", { className: "result-snippet" }, compactSearchSnippet(item.snippet, chatQuery))
+                      )),
+                      chatResults.length === 0 && h("p", { className: "empty" }, "참고자료가 없습니다.")
+                    )
+                  )
+                )
               ]
             )
           ),
