@@ -1118,6 +1118,7 @@
         background: #fff;
       }
       .ap-hint { font-size: 11px; color: var(--muted); margin: 0; line-height: 1.6; }
+      .ap-field-hint { font-size: 11px; color: var(--muted); font-weight: 400; }
       .ap-form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
       /* 선택기 행 */
       .ap-selector-row { display: flex; gap: 6px; align-items: center; margin-top: 8px; }

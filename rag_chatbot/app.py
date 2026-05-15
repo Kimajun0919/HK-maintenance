@@ -1079,9 +1079,13 @@ def _convert_pdf_to_md(content: bytes) -> str:
         return f"# 변환 오류\n\n{exc}"
 
 
-def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str, model: str) -> str:
+def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str, model: str,
+                             auth_header: str = "", chat_path: str = "") -> str:
     base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
     model = (model or "gpt-4o-mini").strip()
+    chat_path = (chat_path or "/chat/completions").strip()
+    if not chat_path.startswith("/"):
+        chat_path = "/" + chat_path
 
     results, context = retrieve(query, top_k)
     if not context:
@@ -1110,9 +1114,13 @@ def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str
     }
     headers: dict[str, str] = {"content-type": "application/json"}
     if api_key.strip():
-        headers["authorization"] = f"Bearer {api_key.strip()}"
+        key = api_key.strip()
+        if auth_header.strip():
+            headers[auth_header.strip().lower()] = key
+        else:
+            headers["authorization"] = f"Bearer {key}"
     request = urllib.request.Request(
-        f"{base_url}/chat/completions",
+        f"{base_url}{chat_path}",
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST",
@@ -1951,6 +1959,8 @@ def create_api_app():
                 str(payload.get("apiKey", "")),
                 str(payload.get("baseUrl", "https://api.openai.com/v1")),
                 str(payload.get("model", "gpt-4o-mini")),
+                auth_header=str(payload.get("authHeader", "")),
+                chat_path=str(payload.get("chatPath", "")),
             )
         elif provider == "quick":
             response = immediate_answer(query, top_k)

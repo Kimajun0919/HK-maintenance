@@ -689,12 +689,12 @@ const h = React.createElement;
 
         const apOpenNew = () => {
           setApEditId("__new__");
-          setApForm({ name: "", type: "openai", apiKey: "", baseUrl: "", model: "" });
+          setApForm({ name: "", type: "openai", apiKey: "", baseUrl: "", model: "", authHeader: "", chatPath: "" });
         };
 
         const apOpenEdit = (p) => {
           setApEditId(p.id);
-          setApForm({ name: p.name, type: p.type, apiKey: p.apiKey || "", baseUrl: p.baseUrl || "", model: p.model || "" });
+          setApForm({ name: p.name, type: p.type, apiKey: p.apiKey || "", baseUrl: p.baseUrl || "", model: p.model || "", authHeader: p.authHeader || "", chatPath: p.chatPath || "" });
         };
 
         const apSave = () => {
@@ -803,7 +803,7 @@ const h = React.createElement;
                 if (builtins[activeProviderId]) return builtins[activeProviderId];
                 const p = apiProviders.find((x) => x.id === activeProviderId);
                 if (!p) return { provider: "quick" };
-                return { provider: p.type, apiKey: p.apiKey || "", model: p.model || "", baseUrl: p.baseUrl || "" };
+                return { provider: p.type, apiKey: p.apiKey || "", model: p.model || "", baseUrl: p.baseUrl || "", authHeader: p.authHeader || "", chatPath: p.chatPath || "" };
               })(),
             }),
           })
@@ -1194,10 +1194,24 @@ const h = React.createElement;
                     h("label", null, "API Key",
                       h("input", { type: "password", value: apForm.apiKey, placeholder: apForm.type === "openai" ? "sk-… (없으면 비워둠)" : "sk-ant-…", onChange: (e) => setApForm((f) => ({ ...f, apiKey: e.target.value })) })
                     ),
+                    apForm.type === "openai" && h("label", null,
+                      "인증 헤더 이름 ",
+                      h("span", { className: "ap-field-hint" }, "(기본: Authorization → Bearer 방식)"),
+                      h("input", { value: apForm.authHeader, placeholder: "예: apikey  (비워두면 Authorization: Bearer 사용)", onChange: (e) => setApForm((f) => ({ ...f, authHeader: e.target.value })) })
+                    ),
+                    apForm.type === "openai" && h("label", null,
+                      "채팅 엔드포인트 경로 ",
+                      h("span", { className: "ap-field-hint" }, "(기본: /chat/completions)"),
+                      h("input", { value: apForm.chatPath, placeholder: "예: /chat  또는 /v1/chat/completions", onChange: (e) => setApForm((f) => ({ ...f, chatPath: e.target.value })) })
+                    ),
                     h("label", null, "모델",
                       h("input", { value: apForm.model, placeholder: apForm.type === "claude" ? "claude-sonnet-4-5" : "gpt-4o-mini", onChange: (e) => setApForm((f) => ({ ...f, model: e.target.value })) })
                     ),
-                    apForm.type === "openai" && h("p", { className: "ap-hint" }, "💡 Ollama: http://localhost:11434/v1 | Groq: https://api.groq.com/openai/v1 | LM Studio: http://localhost:1234/v1"),
+                    apForm.type === "openai" && h("p", { className: "ap-hint" },
+                      "💡 OpenAI: api.openai.com/v1 | Groq: api.groq.com/openai/v1 | Ollama: localhost:11434/v1 | LM Studio: localhost:1234/v1",
+                      h("br", null),
+                      "💡 Luxia: bridge.luxiacloud.com/luxia/v1 — 헤더: apikey, 경로: /chat"
+                    ),
                     h("div", { className: "ap-form-actions" },
                       h("button", { type: "button", onClick: () => setApEditId(null) }, "취소"),
                       h("button", { type: "button", className: "primary", onClick: apSave }, "저장")
