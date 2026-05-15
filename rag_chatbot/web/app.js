@@ -853,7 +853,7 @@ const h = React.createElement;
                 setSelected("");
                 setEditMode(false);
               }
-              return Promise.all([loadDocs(), refreshMeta()]);
+              return Promise.all([loadDocs(), refreshMeta(), loadTrash()]);
             })
             .catch((err) => setError(err.message))
             .finally(() => setLoading(""));
@@ -874,7 +874,7 @@ const h = React.createElement;
               setDraft("");
               setSelected("");
               setEditMode(false);
-              return Promise.all([loadDocs(), refreshMeta()]);
+              return Promise.all([loadDocs(), refreshMeta(), loadTrash()]);
             })
             .catch((err) => setError(err.message))
             .finally(() => setLoading(""));
@@ -934,7 +934,7 @@ const h = React.createElement;
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ path: assetPath }),
           })
-            .then(() => doc && openDoc(doc.source))
+            .then(() => Promise.all([doc ? openDoc(doc.source) : Promise.resolve(), loadTrash()]))
             .catch((err) => setError(err.message));
         };
 
