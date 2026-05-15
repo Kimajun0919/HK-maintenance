@@ -35,7 +35,6 @@ export function App() {
         const [chatQuery, setChatQuery] = React.useState("");
         const [chatAnswer, setChatAnswer] = React.useState("");
         const [chatResults, setChatResults] = React.useState([]);
-        const [topK, setTopK] = React.useState(5);
         const [apiProviders, setApiProviders] = React.useState(() => {
           try { return JSON.parse(localStorage.getItem("hk.apiProviders") || "[]"); } catch { return []; }
         });
@@ -557,7 +556,7 @@ export function App() {
           if (!term) return;
           setLoading("search");
           setError("");
-          api("/api/search?q=" + encodeURIComponent(term) + "&top_k=" + topK)
+          api("/api/search?q=" + encodeURIComponent(term) + "&top_k=5")
             .then(setSearch)
             .catch((err) => setError(err.message))
             .finally(() => setLoading(""));
@@ -593,7 +592,7 @@ export function App() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               query: term,
-              topK,
+              topK: 5,
               ...(() => {
                 const p = apiProviders.find((x) => x.id === activeProviderId);
                 if (!p) return { provider: "__none__" };
@@ -1574,9 +1573,6 @@ export function App() {
                       placeholder: "궁금하신 내용을 입력하세요"
                     }),
                     h("button", { className: "primary", type: "submit" }, loading === "search" ? "중" : "검색")
-                  ),
-                  h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
-                    [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "참고자료 : " + n + "개"))
                   )
                 ),
                 search && h("div", { key: "search-split", className: "search-split" },
@@ -1624,9 +1620,6 @@ export function App() {
                     }, "⚙")
                   ),
                   h("div", { className: "toolbar" },
-                    h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
-                      [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "참고자료 : " + n + "개"))
-                    ),
                     h("label", { className: "toggle" },
                       h("input", { type: "checkbox", checked: useLlm, onChange: (event) => setUseLlm(event.target.checked) }),
                       "LLM 답변"
