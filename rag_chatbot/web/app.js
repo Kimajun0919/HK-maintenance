@@ -1,5 +1,25 @@
 const h = React.createElement;
 
+      const Icon = ({ name }) => {
+        const common = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" };
+        if (name === "file-plus") {
+          return h("svg", common,
+            h("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }),
+            h("path", { d: "M14 2v6h6" }),
+            h("path", { d: "M12 18v-6" }),
+            h("path", { d: "M9 15h6" })
+          );
+        }
+        if (name === "folder-plus") {
+          return h("svg", common,
+            h("path", { d: "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.2a2 2 0 0 1-1.6-.8L10.4 4A2 2 0 0 0 8.8 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z" }),
+            h("path", { d: "M12 10v6" }),
+            h("path", { d: "M9 13h6" })
+          );
+        }
+        return null;
+      };
+
       const api = (path, options) => fetch(path, options).then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || res.statusText);
@@ -787,13 +807,13 @@ const h = React.createElement;
                     className: "icon-button explorer-action",
                     title: "새 문서",
                     onClick: startCreate
-                  }, "+"),
+                  }, h(Icon, { name: "file-plus" })),
                   h("button", {
                     type: "button",
                     className: "icon-button explorer-action",
                     title: "새 폴더",
                     onClick: () => openFolderPicker("sidebar")
-                  }, "[]"),
+                  }, h(Icon, { name: "folder-plus" })),
                   h("button", {
                     type: "button",
                     className: "icon-button",

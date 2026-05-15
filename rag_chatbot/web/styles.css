@@ -175,12 +175,12 @@
         height: 28px;
         border-color: transparent;
         background: transparent;
-        font-size: 12px;
-        font-weight: 700;
+        color: var(--muted);
       }
       .explorer-action:hover {
         border-color: var(--line);
         background: #f8fafc;
+        color: var(--text);
       }
       .brand, .tool-head {
         padding: 10px 12px;
