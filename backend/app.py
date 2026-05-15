@@ -1121,6 +1121,24 @@ def create_api_app():
             ],
         }
 
+    @api_app.get("/api/settings")
+    def api_get_settings():
+        return rag.get_settings()
+
+    @api_app.post("/api/settings")
+    async def api_save_settings(request: Request):
+        try:
+            patch = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        if not isinstance(patch, dict):
+            return _json_response({"error": "expected a JSON object"}, status_code=400)
+        return rag.save_settings(patch)
+
+    @api_app.post("/api/settings/reset")
+    def api_reset_settings():
+        return rag.reset_settings()
+
     @api_app.get("/robots.txt")
     def robots_txt():
         return PlainTextResponse("User-agent: *\nDisallow: /\n")

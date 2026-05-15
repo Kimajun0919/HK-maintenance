@@ -1623,6 +1623,131 @@
         .reader { padding: 12px; }
       }
 
+      /* ── RAG 설정 모달 ─────────────────────────── */
+      .rss-modal {
+        width: min(720px, calc(100vw - 32px));
+        max-height: min(680px, calc(100vh - 48px));
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.35);
+        overflow: hidden;
+      }
+      .rss-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--line);
+        background: #f8fafc;
+        flex-shrink: 0;
+      }
+      .rss-tab {
+        flex: 1;
+        padding: 9px 4px;
+        font-size: 12px;
+        border: none;
+        border-bottom: 2px solid transparent;
+        background: none;
+        cursor: pointer;
+        color: var(--muted);
+        transition: color 0.12s, border-color 0.12s;
+      }
+      .rss-tab:hover { color: var(--text); }
+      .rss-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+      .rss-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 18px 20px;
+      }
+      .rss-hint {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 14px;
+        line-height: 1.5;
+      }
+      .rss-hint-full { grid-column: 1 / -1; }
+      .rss-section { display: flex; flex-direction: column; gap: 10px; }
+      .rss-slider-row { display: flex; flex-direction: column; gap: 4px; }
+      .rss-slider-label { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+      .rss-val {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent);
+        background: var(--soft);
+        padding: 1px 7px;
+        border-radius: 10px;
+      }
+      .rss-slider-row input[type="range"] { width: 100%; accent-color: var(--accent); }
+      .rss-boost-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 12px;
+      }
+      .rss-boost-item { display: flex; flex-direction: column; gap: 4px; }
+      .rss-boost-label { font-size: 12px; color: var(--muted); }
+      .rss-boost-item input[type="number"] {
+        width: 100%;
+        padding: 5px 8px;
+        font-size: 13px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+      }
+      .rss-intent-wrap { overflow: hidden; }
+      .rss-intent-scroll { overflow-x: auto; }
+      .rss-intent-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      .rss-intent-table th {
+        padding: 6px 8px;
+        background: #f1f5f9;
+        border: 1px solid var(--line);
+        white-space: nowrap;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .rss-intent-table td {
+        padding: 4px 6px;
+        border: 1px solid var(--line);
+        vertical-align: middle;
+      }
+      .rss-intent-name { font-size: 12px; color: var(--text); white-space: nowrap; font-weight: 500; }
+      .rss-intent-table input[type="number"] {
+        width: 72px;
+        padding: 3px 5px;
+        font-size: 12px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        text-align: right;
+      }
+      .rss-field-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+      .rss-prompt-textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        font-size: 13px;
+        font-family: inherit;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        resize: vertical;
+        line-height: 1.55;
+      }
+      .rss-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 16px;
+        border-top: 1px solid var(--line);
+        flex-shrink: 0;
+      }
+      .rss-footer-right { display: flex; gap: 8px; }
+      .rss-reset-btn {
+        font-size: 12px;
+        color: var(--muted);
+        border: 1px solid var(--line);
+        background: none;
+        padding: 5px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .rss-reset-btn:hover { background: #fee2e2; color: #ef4444; border-color: #fca5a5; }
+
       /* ── 파일 일괄 업로드 모달 ───────────────────── */
       .bulk-modal {
         width: min(520px, calc(100vw - 32px));

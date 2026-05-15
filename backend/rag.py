@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json as _json
 import math
 import os
 import re
@@ -425,6 +427,7 @@ class Retriever:
             print(f"[RAG_DEBUG] candidate_k={len(candidate_indices)}, max BM25={top_bm25:.4f}")
 
         # ── Stage 2: Field-aware reranking over candidates ─────────────────
+        _boost = _SETTINGS.get("boost", _DEFAULT_SETTINGS["boost"])
         scored: list[tuple[int, float]] = []
         for idx in candidate_indices:
             chunk = self.chunks[idx]
@@ -437,19 +440,19 @@ class Retriever:
             # Title and source field hits
             title_hits = sum(1 for t in query_terms_set if t in title_lower)
             source_hits = sum(1 for t in query_terms_set if t in source_lower)
-            title_boost = min(title_hits * 0.12, 0.36)
-            source_boost = min(source_hits * 0.07, 0.21)
+            title_boost = min(title_hits * _boost.get("title_per_hit", 0.12), _boost.get("title_cap", 0.36))
+            source_boost = min(source_hits * _boost.get("source_per_hit", 0.07), _boost.get("source_cap", 0.21))
 
             # Folder name appears in query
-            folder_boost = 0.50 if folder and folder in compact_query else 0.0
+            folder_boost = _boost.get("folder", 0.50) if folder and folder in compact_query else 0.0
 
             # Exact (space-collapsed) query phrase in title or source
             exact_phrase_boost = 0.0
             if len(query_compact_nospace) >= 4:
                 if query_compact_nospace in re.sub(r"\s+", "", title_lower):
-                    exact_phrase_boost = 0.25
+                    exact_phrase_boost = _boost.get("exact_phrase_title", 0.25)
                 elif query_compact_nospace in re.sub(r"\s+", "", source_lower):
-                    exact_phrase_boost = 0.15
+                    exact_phrase_boost = _boost.get("exact_phrase_source", 0.15)
 
             # Access-intent boost (preserve existing behaviour)
             access_boost = 0.0
@@ -459,10 +462,10 @@ class Retriever:
                     for t in ("접속", "계정", "로그인", "관리자", "vpn", "ftp", "id", "pw", "password", "host", "클라우드", "경로")
                     if t in f"{title_lower}\n{body_lower}"
                 )
-                access_boost = min(access_hits_n * 0.035, 0.28)
+                access_boost = min(access_hits_n * _boost.get("access_per_hit", 0.035), _boost.get("access_cap", 0.28))
 
             # 공통자료 penalty (preserve existing behaviour)
-            common_penalty = 0.35 if folder == "공통자료" and not wants_report else 0.0
+            common_penalty = _boost.get("common_folder_penalty", 0.35) if folder == "공통자료" and not wants_report else 0.0
 
             final_score = (
                 bm25_norm
@@ -837,12 +840,14 @@ def extract_readable_bullets(text: str) -> list[str]:
 _init_supabase_storage()
 chunks = load_chunks()
 retriever = Retriever(chunks)
+load_settings()  # apply settings.json after retriever is ready
 
 
 def refresh_index() -> None:
     global chunks, retriever
     chunks = load_chunks()
     retriever = Retriever(chunks)
+    _apply_settings_to_runtime()  # re-apply BM25 params to the new retriever
 
 
 # ──────────────────────────────────────────────
@@ -919,6 +924,116 @@ SYSTEM_INSTRUCTION_KO = (
 
 def _build_llm_user_prompt(query: str, context: str) -> str:
     return f"질문:\n{query}\n\n문서 근거:\n{context}\n\n한국어로 답변하세요."
+
+
+# ──────────────────────────────────────────────
+# Runtime settings
+# ──────────────────────────────────────────────
+
+_SETTINGS_FILE = Path(__file__).parent / "settings.json"
+
+_DEFAULT_SETTINGS: dict = {
+    "bm25": {"k1": 1.5, "b": 0.75},
+    "boost": {
+        "title_per_hit": 0.12,
+        "title_cap": 0.36,
+        "source_per_hit": 0.07,
+        "source_cap": 0.21,
+        "folder": 0.50,
+        "exact_phrase_title": 0.25,
+        "exact_phrase_source": 0.15,
+        "access_per_hit": 0.035,
+        "access_cap": 0.28,
+        "common_folder_penalty": 0.35,
+    },
+    "intent": {
+        "access_info":        {"top_k": 3, "candidate_k": 25, "max_context_chars": 1100, "snippets_per_chunk": 2},
+        "account_info":       {"top_k": 3, "candidate_k": 25, "max_context_chars": 1200, "snippets_per_chunk": 2},
+        "report":             {"top_k": 4, "candidate_k": 30, "max_context_chars": 2000, "snippets_per_chunk": 3},
+        "troubleshooting":    {"top_k": 5, "candidate_k": 35, "max_context_chars": 2800, "snippets_per_chunk": 3},
+        "feature_explanation":{"top_k": 5, "candidate_k": 35, "max_context_chars": 2500, "snippets_per_chunk": 3},
+        "summary":            {"top_k": 8, "candidate_k": 40, "max_context_chars": 4000, "snippets_per_chunk": 2},
+        "general_search":     {"top_k": 5, "candidate_k": 40, "max_context_chars": 2200, "snippets_per_chunk": 2},
+    },
+    "prompt": {"system_instruction": SYSTEM_INSTRUCTION_KO},
+    "general": {"max_new_tokens": 512},
+}
+
+_SETTINGS: dict = copy.deepcopy(_DEFAULT_SETTINGS)
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    result = dict(base)
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
+def _apply_settings_to_runtime() -> None:
+    """Push _SETTINGS values into live runtime objects (called after load or save)."""
+    global SYSTEM_INSTRUCTION_KO, INTENT_CONFIG
+    SYSTEM_INSTRUCTION_KO = _SETTINGS.get("prompt", {}).get(
+        "system_instruction", _DEFAULT_SETTINGS["prompt"]["system_instruction"]
+    )
+    intent_overrides = _SETTINGS.get("intent", {})
+    for intent_name, values in intent_overrides.items():
+        if intent_name in INTENT_CONFIG and isinstance(values, dict):
+            INTENT_CONFIG[intent_name].update(values)
+    # Update BM25 hyper-params on the live retriever without rebuilding the index
+    if retriever is not None and retriever.bm25 is not None:
+        bm25_cfg = _SETTINGS.get("bm25", {})
+        retriever.bm25.k1 = float(bm25_cfg.get("k1", 1.5))
+        retriever.bm25.b = float(bm25_cfg.get("b", 0.75))
+
+
+def load_settings() -> dict:
+    """Load settings.json if present and merge over defaults; apply to runtime."""
+    global _SETTINGS
+    _SETTINGS = copy.deepcopy(_DEFAULT_SETTINGS)
+    if _SETTINGS_FILE.exists():
+        try:
+            with _SETTINGS_FILE.open(encoding="utf-8") as f:
+                saved = _json.load(f)
+            _SETTINGS = _deep_merge(_SETTINGS, saved)
+        except Exception:
+            pass
+    _apply_settings_to_runtime()
+    return _SETTINGS
+
+
+def save_settings(patch: dict) -> dict:
+    """Merge patch into _SETTINGS, persist to settings.json, apply to runtime."""
+    global _SETTINGS
+    _SETTINGS = _deep_merge(_SETTINGS, patch)
+    try:
+        with _SETTINGS_FILE.open("w", encoding="utf-8") as f:
+            _json.dump(_SETTINGS, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    _apply_settings_to_runtime()
+    return _SETTINGS
+
+
+def get_settings() -> dict:
+    result = copy.deepcopy(_SETTINGS)
+    result["_defaults"] = copy.deepcopy(_DEFAULT_SETTINGS)
+    return result
+
+
+def reset_settings() -> dict:
+    """Overwrite settings.json with defaults and apply."""
+    global _SETTINGS
+    _SETTINGS = copy.deepcopy(_DEFAULT_SETTINGS)
+    try:
+        with _SETTINGS_FILE.open("w", encoding="utf-8") as f:
+            _json.dump(_SETTINGS, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    _apply_settings_to_runtime()
+    return get_settings()
 
 
 # ──────────────────────────────────────────────

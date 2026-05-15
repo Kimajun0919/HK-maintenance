@@ -118,6 +118,12 @@ export function App() {
         const [fmViewMode, setFmViewMode] = React.useState("grid");
         const [fmSelectedFolders, setFmSelectedFolders] = React.useState(() => new Set());
         const [fmSelectedFiles, setFmSelectedFiles] = React.useState(() => new Set());
+        const [ragSettingsOpen, setRagSettingsOpen] = React.useState(false);
+        const [ragSettings, setRagSettings] = React.useState(null);
+        const [ragDefaults, setRagDefaults] = React.useState(null);
+        const [ragDraft, setRagDraft] = React.useState(null);
+        const [settingsTab, setSettingsTab] = React.useState("bm25");
+        const [settingsSaving, setSettingsSaving] = React.useState(false);
         const [bulkUploadOpen, setBulkUploadOpen] = React.useState(false);
         const [bulkUploadFolder, setBulkUploadFolder] = React.useState("");
         const [bulkUploadItems, setBulkUploadItems] = React.useState([]);
@@ -542,6 +548,60 @@ export function App() {
           });
         };
 
+
+        const openRagSettings = () => {
+          setSettingsTab("bm25");
+          api("/api/settings")
+            .then((data) => {
+              const { _defaults, ...current } = data;
+              setRagSettings(current);
+              setRagDefaults(_defaults || null);
+              setRagDraft(JSON.parse(JSON.stringify(current)));
+              setRagSettingsOpen(true);
+            })
+            .catch((err) => setError(err.message));
+        };
+
+        const updateDraft = (path, value) => {
+          setRagDraft((prev) => {
+            const next = JSON.parse(JSON.stringify(prev));
+            const parts = path.split(".");
+            let obj = next;
+            for (let i = 0; i < parts.length - 1; i++) obj = obj[parts[i]];
+            obj[parts[parts.length - 1]] = value;
+            return next;
+          });
+        };
+
+        const saveRagSettings = () => {
+          if (!ragDraft) return;
+          setSettingsSaving(true);
+          api("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(ragDraft),
+          })
+            .then((data) => {
+              const { _defaults, ...current } = data;
+              setRagSettings(current);
+              setRagDraft(JSON.parse(JSON.stringify(current)));
+              setRagSettingsOpen(false);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setSettingsSaving(false));
+        };
+
+        const resetRagSettings = () => {
+          if (!confirm("모든 설정을 초기값으로 되돌립니까?")) return;
+          api("/api/settings/reset", { method: "POST" })
+            .then((data) => {
+              const { _defaults, ...current } = data;
+              setRagSettings(current);
+              setRagDefaults(_defaults || null);
+              setRagDraft(JSON.parse(JSON.stringify(current)));
+            })
+            .catch((err) => setError(err.message));
+        };
 
         const openBulkUpload = () => {
           setBulkUploadOpen(true);
@@ -1310,6 +1370,135 @@ export function App() {
               )
             )
           ),
+          ragSettingsOpen && ragDraft && h("div", { className: "modal-backdrop", onMouseDown: () => { if (!settingsSaving) setRagSettingsOpen(false); } },
+            h("section", { className: "rss-modal", onMouseDown: (e) => e.stopPropagation() },
+
+              h("header", { className: "fm-header" },
+                h("div", { className: "fm-title" }, h("strong", null, "⚙ RAG 설정")),
+                !settingsSaving && h("button", { type: "button", className: "icon-button", onClick: () => setRagSettingsOpen(false) }, "×")
+              ),
+
+              h("div", { className: "rss-tabs" },
+                [["bm25","BM25"], ["boost","부스트"], ["intent","인텐트"], ["prompt","프롬프트"], ["general","일반"]].map(([id, label]) =>
+                  h("button", { key: id, type: "button", className: "rss-tab" + (settingsTab === id ? " active" : ""), onClick: () => setSettingsTab(id) }, label)
+                )
+              ),
+
+              h("div", { className: "rss-body" },
+
+                /* ── BM25 ── */
+                settingsTab === "bm25" && h("div", { className: "rss-section" },
+                  h("p", { className: "rss-hint" }, "BM25 점수 계산에 사용되는 하이퍼파라미터입니다. 변경 시 인덱스 재빌드 없이 즉시 적용됩니다."),
+                  [
+                    ["bm25.k1", "k1 — 반복 키워드 가중치", 0.5, 3.0, 0.1],
+                    ["bm25.b",  "b — 문서 길이 정규화",    0.0, 1.0, 0.05],
+                  ].map(([path, label, min, max, step]) => {
+                    const val = path.split(".").reduce((o, k) => o && o[k], ragDraft);
+                    return h("div", { key: path, className: "rss-slider-row" },
+                      h("div", { className: "rss-slider-label" },
+                        h("span", null, label),
+                        h("span", { className: "rss-val" }, Number(val).toFixed(2))
+                      ),
+                      h("input", { type: "range", min, max, step, value: val, onChange: (e) => updateDraft(path, parseFloat(e.target.value)) })
+                    );
+                  })
+                ),
+
+                /* ── 부스트 ── */
+                settingsTab === "boost" && h("div", { className: "rss-section" },
+                  h("p", { className: "rss-hint" }, "검색 결과 재순위 시 적용되는 필드별 가중치입니다."),
+                  h("div", { className: "rss-boost-grid" },
+                    [
+                      ["boost.title_per_hit",          "제목 히트당 부스트",   0, 0.5,  0.01],
+                      ["boost.title_cap",               "제목 부스트 상한",     0, 1.0,  0.01],
+                      ["boost.source_per_hit",          "소스 히트당 부스트",   0, 0.3,  0.01],
+                      ["boost.source_cap",              "소스 부스트 상한",     0, 1.0,  0.01],
+                      ["boost.folder",                  "폴더 부스트",          0, 1.5,  0.05],
+                      ["boost.exact_phrase_title",      "정확 문구 (제목)",     0, 1.0,  0.01],
+                      ["boost.exact_phrase_source",     "정확 문구 (소스)",     0, 1.0,  0.01],
+                      ["boost.access_per_hit",          "접속 히트당 부스트",   0, 0.1,  0.005],
+                      ["boost.access_cap",              "접속 부스트 상한",     0, 1.0,  0.01],
+                      ["boost.common_folder_penalty",   "공통자료 패널티",      0, 1.5,  0.05],
+                    ].map(([path, label, min, max, step]) => {
+                      const val = path.split(".").reduce((o, k) => o && o[k], ragDraft);
+                      return h("div", { key: path, className: "rss-boost-item" },
+                        h("label", { className: "rss-boost-label" }, label),
+                        h("input", { type: "number", min, max, step, value: val, onChange: (e) => updateDraft(path, parseFloat(e.target.value)) })
+                      );
+                    })
+                  )
+                ),
+
+                /* ── 인텐트 ── */
+                settingsTab === "intent" && ragDraft.intent && h("div", { className: "rss-section rss-intent-wrap" },
+                  h("p", { className: "rss-hint" }, "인텐트별 검색 범위와 컨텍스트 예산을 조정합니다."),
+                  h("div", { className: "rss-intent-scroll" },
+                    h("table", { className: "rss-intent-table" },
+                      h("thead", null,
+                        h("tr", null,
+                          h("th", null, "인텐트"),
+                          h("th", null, "top_k"),
+                          h("th", null, "candidate_k"),
+                          h("th", null, "max_chars"),
+                          h("th", null, "snippets")
+                        )
+                      ),
+                      h("tbody", null,
+                        Object.entries({
+                          access_info: "접속 정보", account_info: "계정 정보", report: "보고서",
+                          troubleshooting: "트러블슈팅", feature_explanation: "기능 설명",
+                          summary: "요약/비교", general_search: "일반 검색",
+                        }).map(([key, label]) => {
+                          const row = (ragDraft.intent || {})[key] || {};
+                          const col = (field, min, max) => h("td", null,
+                            h("input", { type: "number", min, max, value: row[field] ?? "", onChange: (e) => updateDraft(`intent.${key}.${field}`, parseInt(e.target.value)) })
+                          );
+                          return h("tr", { key },
+                            h("td", { className: "rss-intent-name" }, label),
+                            col("top_k", 1, 20),
+                            col("candidate_k", 5, 100),
+                            col("max_context_chars", 200, 8000),
+                            col("snippets_per_chunk", 1, 5)
+                          );
+                        })
+                      )
+                    )
+                  )
+                ),
+
+                /* ── 프롬프트 ── */
+                settingsTab === "prompt" && ragDraft.prompt && h("div", { className: "rss-section" },
+                  h("p", { className: "rss-hint" }, "LLM에 전달되는 시스템 지시문입니다. Claude, OpenAI 공통으로 적용됩니다."),
+                  h("label", { className: "rss-field-label" }, "시스템 지시 (System Instruction)"),
+                  h("textarea", {
+                    className: "rss-prompt-textarea",
+                    rows: 10,
+                    value: ragDraft.prompt.system_instruction || "",
+                    onChange: (e) => updateDraft("prompt.system_instruction", e.target.value),
+                    spellCheck: false,
+                  })
+                ),
+
+                /* ── 일반 ── */
+                settingsTab === "general" && ragDraft.general && h("div", { className: "rss-section rss-boost-grid" },
+                  h("p", { className: "rss-hint rss-hint-full" }, "로컬 LLM 또는 API 응답 생성에 적용되는 일반 파라미터입니다."),
+                  h("div", { className: "rss-boost-item" },
+                    h("label", { className: "rss-boost-label" }, "최대 생성 토큰 (max_new_tokens)"),
+                    h("input", { type: "number", min: 64, max: 4096, step: 64, value: ragDraft.general.max_new_tokens ?? 512, onChange: (e) => updateDraft("general.max_new_tokens", parseInt(e.target.value)) })
+                  )
+                )
+              ),
+
+              h("div", { className: "rss-footer" },
+                h("button", { type: "button", className: "rss-reset-btn", onClick: resetRagSettings }, "초기화"),
+                h("div", { className: "rss-footer-right" },
+                  h("button", { type: "button", onClick: () => setRagSettingsOpen(false), disabled: settingsSaving }, "취소"),
+                  h("button", { type: "button", className: "primary", onClick: saveRagSettings, disabled: settingsSaving }, settingsSaving ? "저장 중…" : "저장")
+                )
+              )
+            )
+          ),
+
           bulkUploadOpen && h("div", { className: "modal-backdrop", onMouseDown: () => { if (!bulkUploading) setBulkUploadOpen(false); } },
             h("section", { className: "bulk-modal", onMouseDown: (e) => e.stopPropagation() },
 
@@ -1997,6 +2186,12 @@ export function App() {
           ),
 
           h("nav", { className: "side-rail right-rail", "aria-label": "오른쪽 메뉴" },
+            h("button", {
+              type: "button",
+              className: "rail-button" + (ragSettingsOpen ? " active" : ""),
+              title: "RAG 설정",
+              onClick: openRagSettings
+            }, "⚙"),
             h("button", {
               type: "button",
               className: "rail-button " + (!rightCollapsed ? "active" : ""),
