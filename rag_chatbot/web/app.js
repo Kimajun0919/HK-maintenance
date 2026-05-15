@@ -1752,7 +1752,7 @@ const h = React.createElement;
                     h("button", { className: "primary", type: "submit" }, loading === "search" ? "중" : "검색")
                   ),
                   h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
-                    [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "근거 " + n))
+                    [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "참고자료 " + n))
                   )
                 ),
                 search && h("div", { key: "search-answer", className: "answer" }, h(Markdown, { text: search.answer })),
