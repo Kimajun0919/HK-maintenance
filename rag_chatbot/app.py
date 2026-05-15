@@ -12,9 +12,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import Request
+from dotenv import load_dotenv
 
 
 APP_DIR = Path(__file__).resolve().parent
+load_dotenv(APP_DIR.parent / ".env", override=False)
+load_dotenv(APP_DIR / ".env", override=False)
+
 DEFAULT_DOCS_DIR = APP_DIR / "organized_maintenance_docs_simple"
 if not DEFAULT_DOCS_DIR.exists():
     DEFAULT_DOCS_DIR = APP_DIR.parent / "organized_maintenance_docs_simple"
