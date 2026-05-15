@@ -24,6 +24,14 @@ USE_LLM = os.getenv("USE_LLM", "1") != "0"
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "512"))
 DEFAULT_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")
 ANTHROPIC_API_URL = os.getenv("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL", "")
+DOC_STORAGE = os.getenv("DOC_STORAGE", "supabase" if SUPABASE_DB_URL else "files").strip().lower()
+SUPABASE_ENABLED = DOC_STORAGE == "supabase" and bool(SUPABASE_DB_URL)
+SUPABASE_AUTO_MIGRATE = os.getenv("SUPABASE_AUTO_MIGRATE", "1") != "0"
+SUPABASE_SEED_FROM_FILES = os.getenv("SUPABASE_SEED_FROM_FILES", "1") != "0"
+SUPABASE_DOCS_TABLE = os.getenv("SUPABASE_DOCS_TABLE", "maintenance_docs")
+if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SUPABASE_DOCS_TABLE):
+    raise ValueError("SUPABASE_DOCS_TABLE must be a simple SQL identifier")
 
 
 QUERY_ALIASES = {
@@ -52,6 +60,133 @@ class Chunk:
     text: str
     source: str
     title: str
+
+
+@dataclass
+class DocRecord:
+    source: str
+    title: str
+    customer: str
+    content: str
+
+
+def _file_doc_records() -> list[DocRecord]:
+    if not DOCS_DIR.exists():
+        return []
+
+    records: list[DocRecord] = []
+    for path in sorted(DOCS_DIR.rglob("*.md")):
+        rel_parts = path.relative_to(DOCS_DIR).parts
+        if rel_parts and rel_parts[0] == "HK_유지보수팀":
+            continue
+        if path.name in {"SIMPLIFY_CHANGELOG.md"}:
+            continue
+        rel = path.relative_to(DOCS_DIR).as_posix()
+        records.append(
+            DocRecord(
+                source=rel,
+                title=path.stem,
+                customer=rel_parts[0] if rel_parts else "",
+                content=path.read_text(encoding="utf-8", errors="replace"),
+            )
+        )
+    return records
+
+
+def _db_connect():
+    try:
+        import psycopg
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("Supabase DB storage requires `psycopg[binary]`. Run pip install -r requirements.txt.") from exc
+    return psycopg.connect(SUPABASE_DB_URL, autocommit=True)
+
+
+def _init_supabase_storage() -> None:
+    if not SUPABASE_ENABLED:
+        return
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            if SUPABASE_AUTO_MIGRATE:
+                cur.execute(
+                    f"""
+                    create table if not exists {SUPABASE_DOCS_TABLE} (
+                        id bigserial primary key,
+                        source text not null unique,
+                        title text not null,
+                        customer text not null default '',
+                        content text not null,
+                        created_at timestamptz not null default now(),
+                        updated_at timestamptz not null default now()
+                    )
+                    """
+                )
+                cur.execute(f"create index if not exists {SUPABASE_DOCS_TABLE}_customer_idx on {SUPABASE_DOCS_TABLE} (customer)")
+                cur.execute(f"create index if not exists {SUPABASE_DOCS_TABLE}_updated_at_idx on {SUPABASE_DOCS_TABLE} (updated_at desc)")
+            if SUPABASE_SEED_FROM_FILES:
+                cur.execute(f"select count(*) from {SUPABASE_DOCS_TABLE}")
+                count = cur.fetchone()[0]
+                if count == 0:
+                    rows = [(record.source, record.title, record.customer, record.content) for record in _file_doc_records()]
+                    if rows:
+                        cur.executemany(
+                            f"""
+                            insert into {SUPABASE_DOCS_TABLE} (source, title, customer, content)
+                            values (%s, %s, %s, %s)
+                            on conflict (source) do nothing
+                            """,
+                            rows,
+                        )
+
+
+def _db_doc_records() -> list[DocRecord]:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select source, title, customer, content from {SUPABASE_DOCS_TABLE} order by source")
+            return [DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3]) for row in cur.fetchall()]
+
+
+def _db_doc_record(source: str) -> DocRecord | None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"select source, title, customer, content from {SUPABASE_DOCS_TABLE} where source = %s",
+                (source,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3])
+
+
+def _db_create_doc(record: DocRecord) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                insert into {SUPABASE_DOCS_TABLE} (source, title, customer, content)
+                values (%s, %s, %s, %s)
+                """,
+                (record.source, record.title, record.customer, record.content),
+            )
+
+
+def _db_update_doc(source: str, content: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"update {SUPABASE_DOCS_TABLE} set content = %s, updated_at = now() where source = %s",
+                (content, source),
+            )
+
+
+def _db_delete_doc(source: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where source = %s", (source,))
+
+
+def _doc_records() -> list[DocRecord]:
+    return _db_doc_records() if SUPABASE_ENABLED else _file_doc_records()
 
 
 def clean_text(text: str) -> str:
@@ -103,17 +238,10 @@ def split_markdown(path: Path, text: str, max_chars: int = 1800, overlap: int = 
 
 
 def load_chunks() -> list[Chunk]:
-    if not DOCS_DIR.exists():
-        return []
-
     chunks: list[Chunk] = []
-    for path in sorted(DOCS_DIR.rglob("*.md")):
-        rel_parts = path.relative_to(DOCS_DIR).parts
-        if rel_parts and rel_parts[0] == "HK_유지보수팀":
-            continue
-        if path.name in {"SIMPLIFY_CHANGELOG.md"}:
-            continue
-        text = clean_text(path.read_text(encoding="utf-8", errors="replace"))
+    for record in _doc_records():
+        path = DOCS_DIR / record.source
+        text = clean_text(record.content)
         if text:
             chunks.extend(split_markdown(path, text))
     return chunks
@@ -411,6 +539,7 @@ def extract_readable_bullets(text: str) -> list[str]:
     return deduped
 
 
+_init_supabase_storage()
 chunks = load_chunks()
 retriever = Retriever(chunks)
 
@@ -693,6 +822,16 @@ def _is_system_doc(path: Path) -> bool:
     }
 
 
+def _is_system_source(source: str) -> bool:
+    name = Path(source).name
+    return name.startswith("READABILITY_") or name in {
+        "README.md",
+        "SIMPLIFY_CHANGELOG.md",
+        "SIMPLIFY_VALIDATION_REPORT.md",
+        "HK_CUSTOMER_INFO_INDEX.md",
+    }
+
+
 def _safe_asset_path(source: str, asset_path: str) -> Path | None:
     doc_path = _safe_doc_path(source)
     if doc_path is None:
@@ -733,14 +872,11 @@ def _safe_asset_path(source: str, asset_path: str) -> Path | None:
 
 def docs_index() -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
-    if not DOCS_DIR.exists():
-        return items
-    for path in sorted(DOCS_DIR.rglob("*.md")):
-        rel = path.relative_to(DOCS_DIR).as_posix()
-        if path.name in {"SIMPLIFY_CHANGELOG.md", "SIMPLIFY_VALIDATION_REPORT.md"}:
+    for record in _doc_records():
+        name = Path(record.source).name
+        if name in {"SIMPLIFY_CHANGELOG.md", "SIMPLIFY_VALIDATION_REPORT.md"}:
             continue
-        parts = path.relative_to(DOCS_DIR).parts
-        items.append({"source": rel, "title": path.stem, "customer": parts[0] if parts else ""})
+        items.append({"source": record.source, "title": record.title, "customer": record.customer})
     return items
 
 
@@ -768,6 +904,7 @@ def create_api_app():
     def api_meta():
         return {
             "docsDir": str(DOCS_DIR),
+            "storage": "supabase" if SUPABASE_ENABLED else "files",
             "chunkCount": len(chunks),
             "docCount": len(docs_index()),
             "llm": MODEL_NAME if USE_LLM else "disabled",
@@ -780,6 +917,11 @@ def create_api_app():
 
     @api_app.get("/api/doc")
     def api_doc(source: str = Query(...)):
+        if SUPABASE_ENABLED:
+            record = _db_doc_record(source)
+            if record is None:
+                return _json_response({"error": "document not found"}, status_code=404)
+            return {"source": record.source, "title": record.title, "content": record.content}
         path = _safe_doc_path(source)
         if path is None:
             return _json_response({"error": "document not found"}, status_code=404)
@@ -795,17 +937,31 @@ def create_api_app():
         path = _safe_new_doc_path(source or "")
         if path is None:
             return _json_response({"error": "invalid document path"}, status_code=400)
-        if path.exists():
+        rel = path.relative_to(DOCS_DIR).as_posix()
+        if SUPABASE_ENABLED and _db_doc_record(rel) is not None:
+            return _json_response({"error": "document already exists"}, status_code=409)
+        if not SUPABASE_ENABLED and path.exists():
             return _json_response({"error": "document already exists"}, status_code=409)
         content = str(payload.get("content", "")).replace("\r\n", "\n").replace("\r", "\n").strip()
         if not content:
             title = path.stem.replace("_", " ")
             content = f"# {title}\n\n## 본문\n\n"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content.rstrip() + "\n", encoding="utf-8", newline="\n")
+        content = content.rstrip() + "\n"
+        if SUPABASE_ENABLED:
+            parts = Path(rel).parts
+            _db_create_doc(
+                DocRecord(
+                    source=rel,
+                    title=path.stem,
+                    customer=parts[0] if parts else "",
+                    content=content,
+                )
+            )
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8", newline="\n")
         refresh_index()
-        rel = path.relative_to(DOCS_DIR).as_posix()
-        return {"source": rel, "title": path.stem, "content": path.read_text(encoding="utf-8", errors="replace")}
+        return {"source": rel, "title": path.stem, "content": content}
 
     @api_app.put("/api/doc")
     async def api_update_doc(request: Request):
@@ -814,6 +970,20 @@ def create_api_app():
         except json.JSONDecodeError:
             return _json_response({"error": "invalid json"}, status_code=400)
         source = str(payload.get("source", "")).strip()
+        if SUPABASE_ENABLED:
+            record = _db_doc_record(source)
+            if record is None:
+                return _json_response({"error": "document not found"}, status_code=404)
+            if _is_system_source(source):
+                return _json_response({"error": "system document cannot be edited"}, status_code=403)
+            content = str(payload.get("content", "")).replace("\r\n", "\n").replace("\r", "\n")
+            if not content.strip():
+                return _json_response({"error": "content is empty"}, status_code=400)
+            content = content.rstrip() + "\n"
+            _db_update_doc(source, content)
+            refresh_index()
+            updated = _db_doc_record(source)
+            return {"source": source, "title": record.title, "content": updated.content if updated else content}
         path = _safe_doc_path(source)
         if path is None:
             return _json_response({"error": "document not found"}, status_code=404)
@@ -833,6 +1003,14 @@ def create_api_app():
         except json.JSONDecodeError:
             return _json_response({"error": "invalid json"}, status_code=400)
         source = str(payload.get("source", "")).strip()
+        if SUPABASE_ENABLED:
+            if _db_doc_record(source) is None:
+                return _json_response({"error": "document not found"}, status_code=404)
+            if _is_system_source(source):
+                return _json_response({"error": "system document cannot be deleted"}, status_code=403)
+            _db_delete_doc(source)
+            refresh_index()
+            return {"ok": True, "source": source}
         path = _safe_doc_path(source)
         if path is None:
             return _json_response({"error": "document not found"}, status_code=404)
