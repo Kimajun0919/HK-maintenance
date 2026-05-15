@@ -265,6 +265,8 @@ const h = React.createElement;
         const [draggingSide, setDraggingSide] = React.useState("");
         const [loading, setLoading] = React.useState("");
         const [error, setError] = React.useState("");
+        const [trashOpen, setTrashOpen] = React.useState(false);
+        const [trashItems, setTrashItems] = React.useState(null);
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -317,6 +319,7 @@ const h = React.createElement;
         React.useEffect(() => {
           refreshMeta();
           loadDocs();
+          loadTrash();
         }, []);
 
         const loadDocs = () => {
@@ -701,7 +704,7 @@ const h = React.createElement;
         };
 
         const deleteDocItem = (item) => {
-          if (!confirm("문서를 삭제할까요?")) return;
+          if (!confirm("문서를 휴지통으로 이동합니다.")) return;
           setLoading("delete");
           setError("");
           api("/api/doc", {
@@ -724,7 +727,7 @@ const h = React.createElement;
 
         const deleteDoc = () => {
           if (!doc) return;
-          if (!confirm("이 문서를 삭제할까요? 삭제 후에는 현재 배포 파일 기준으로 복구해야 합니다.")) return;
+          if (!confirm("문서를 휴지통으로 이동합니다. 30일 후 자동 영구 삭제됩니다.")) return;
           setLoading("delete");
           setError("");
           api("/api/doc", {
@@ -741,6 +744,84 @@ const h = React.createElement;
             })
             .catch((err) => setError(err.message))
             .finally(() => setLoading(""));
+        };
+
+        const loadTrash = () => {
+          return api("/api/trash").then(setTrashItems).catch((err) => setError(err.message));
+        };
+
+        const openTrash = () => {
+          setTrashOpen(true);
+          loadTrash();
+        };
+
+        const restoreItem = (type, key) => {
+          setLoading("trash");
+          api("/api/trash/restore", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, key }),
+          })
+            .then(() => Promise.all([loadTrash(), type === "doc" ? loadDocs() : Promise.resolve()]))
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const permanentDeleteItem = (type, key) => {
+          if (!confirm("영구 삭제합니다. 복원할 수 없습니다.")) return;
+          setLoading("trash");
+          api("/api/trash", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, key }),
+          })
+            .then(() => loadTrash())
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const emptyTrash = () => {
+          if (!confirm("휴지통을 비웁니다. 모든 항목이 영구 삭제됩니다.")) return;
+          setLoading("trash");
+          api("/api/trash", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "all" }),
+          })
+            .then(() => loadTrash())
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const deleteAsset = (assetPath) => {
+          if (!confirm(`이미지를 휴지통으로 이동합니다.\n${assetPath.split("/").pop()}`)) return;
+          api("/api/asset", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: assetPath }),
+          })
+            .then(() => doc && openDoc(doc.source))
+            .catch((err) => setError(err.message));
+        };
+
+        const extractDocImages = (source, content) => {
+          const folder = source.split("/").slice(0, -1).join("/");
+          const images = [];
+          const regex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+          let match;
+          while ((match = regex.exec(content)) !== null) {
+            const rawPath = match[2].trim().split(/\s+/)[0];
+            if (rawPath.startsWith("http") || rawPath.startsWith("data:") || rawPath.startsWith("/")) continue;
+            const dbPath = folder ? `${folder}/${rawPath}` : rawPath;
+            const url = `/api/asset?source=${encodeURIComponent(source)}&path=${encodeURIComponent(rawPath)}`;
+            images.push({ alt: match[1], rawPath, dbPath, url });
+          }
+          return images;
+        };
+
+        const trashDaysLeft = (deletedAt) => {
+          const ms = 30 * 24 * 60 * 60 * 1000 - (Date.now() - new Date(deletedAt).getTime());
+          return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
         };
 
         const appStyle = {
@@ -847,7 +928,18 @@ const h = React.createElement;
                   className: "icon-button explorer-action",
                   title: "새 폴더",
                   onClick: () => openFolderPicker("sidebar")
-                }, h(Icon, { name: "folder-plus" }))
+                }, h(Icon, { name: "folder-plus" })),
+                h("div", { style: { position: "relative", display: "inline-flex" } },
+                  h("button", {
+                    type: "button",
+                    className: "icon-button explorer-action" + (trashOpen ? " active" : ""),
+                    title: "휴지통",
+                    onClick: trashOpen ? () => setTrashOpen(false) : openTrash
+                  }, "🗑"),
+                  trashItems && (trashItems.docs.length + trashItems.assets.length) > 0 && h("span", { className: "trash-badge" },
+                    trashItems.docs.length + trashItems.assets.length
+                  )
+                )
               ),
               showFolderCreate && h("form", { className: "inline-form", onSubmit: createFolder },
                 h("input", {
@@ -861,7 +953,51 @@ const h = React.createElement;
                 )
               )
             ),
-            h("div", { className: "folder-list" },
+            trashOpen
+              ? h("div", { className: "trash-panel" },
+                  h("div", { className: "trash-header" },
+                    h("span", null, "휴지통"),
+                    trashItems && (trashItems.docs.length + trashItems.assets.length) > 0 && h("button", {
+                      type: "button",
+                      className: "trash-empty-btn",
+                      onClick: emptyTrash,
+                      disabled: loading === "trash"
+                    }, "전체 비우기")
+                  ),
+                  !trashItems
+                    ? h("div", { className: "empty" }, "불러오는 중...")
+                    : trashItems.docs.length === 0 && trashItems.assets.length === 0
+                      ? h("div", { className: "empty" }, "휴지통이 비었습니다.")
+                      : h("div", null,
+                          trashItems.docs.length > 0 && h("div", { className: "trash-section" },
+                            h("div", { className: "trash-section-title" }, "문서"),
+                            trashItems.docs.map((item) => h("div", { key: item.source, className: "trash-item" },
+                              h("div", { className: "trash-item-info" },
+                                h("strong", null, item.title),
+                                h("span", null, `${trashDaysLeft(item.deleted_at)}일 후 영구삭제`)
+                              ),
+                              h("div", { className: "trash-item-actions" },
+                                h("button", { type: "button", onClick: () => restoreItem("doc", item.source), disabled: loading === "trash" }, "복원"),
+                                h("button", { type: "button", className: "danger-text", onClick: () => permanentDeleteItem("doc", item.source), disabled: loading === "trash" }, "영구삭제")
+                              )
+                            ))
+                          ),
+                          trashItems.assets.length > 0 && h("div", { className: "trash-section" },
+                            h("div", { className: "trash-section-title" }, "이미지"),
+                            trashItems.assets.map((item) => h("div", { key: item.path, className: "trash-item" },
+                              h("div", { className: "trash-item-info" },
+                                h("strong", null, item.path.split("/").pop()),
+                                h("span", null, `${trashDaysLeft(item.deleted_at)}일 후 영구삭제`)
+                              ),
+                              h("div", { className: "trash-item-actions" },
+                                h("button", { type: "button", onClick: () => restoreItem("asset", item.path), disabled: loading === "trash" }, "복원"),
+                                h("button", { type: "button", className: "danger-text", onClick: () => permanentDeleteItem("asset", item.path), disabled: loading === "trash" }, "영구삭제")
+                              )
+                            ))
+                          )
+                        )
+                )
+              : h("div", { className: "folder-list" },
               groupedDocs.map(([folder, items]) => {
                 const isOpen = !!openFolders[folder] || !!docFilter.trim();
                 return h("div", { key: folder, className: "folder" },
@@ -944,6 +1080,7 @@ const h = React.createElement;
               groupedDocs.length === 0 && h("div", { className: "empty" }, "자료가 없습니다.")
             )
           ),
+
 
           h("div", {
             className: "resizer left-resizer " + (draggingSide === "left" ? "dragging" : ""),
@@ -1055,7 +1192,30 @@ const h = React.createElement;
                       onChange: setDraft,
                       minHeight: "calc(100vh - 230px)"
                     })
-                  : h("div", { className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source }))
+                  : h("div", null,
+                      h("div", { className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source })),
+                      (() => {
+                        const imgs = extractDocImages(doc.source, doc.content || "");
+                        if (!imgs.length) return null;
+                        return h("div", { className: "doc-images" },
+                          h("div", { className: "doc-images-title" }, "첨부 이미지"),
+                          h("div", { className: "doc-images-grid" },
+                            imgs.map((img) => h("div", { key: img.dbPath, className: "doc-image-item" },
+                              h("img", { src: img.url, alt: img.alt, loading: "lazy" }),
+                              h("div", { className: "doc-image-footer" },
+                                h("span", { title: img.rawPath }, img.rawPath.split("/").pop()),
+                                h("button", {
+                                  type: "button",
+                                  className: "img-delete-btn",
+                                  title: "이미지 휴지통으로 이동",
+                                  onClick: () => deleteAsset(img.dbPath)
+                                }, "×")
+                              )
+                            ))
+                          )
+                        );
+                      })()
+                    )
               ) : h("div", { className: "reader-empty" },
                 h("div", { className: "empty" }, loading === "doc" ? "자료를 여는 중입니다." : "왼쪽에서 자료를 선택하거나 오른쪽에서 검색하세요.")
               )

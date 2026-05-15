@@ -224,6 +224,146 @@
         overflow: auto;
         padding: 4px 6px 8px;
       }
+      /* 휴지통 패널 */
+      .trash-panel {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .trash-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        padding: 2px 0 6px;
+        border-bottom: 1px solid var(--line);
+      }
+      .trash-empty-btn {
+        font-size: 11px;
+        color: var(--danger, #e53e3e);
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 2px 4px;
+      }
+      .trash-empty-btn:hover { text-decoration: underline; }
+      .trash-section { margin-top: 8px; }
+      .trash-section-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        margin-bottom: 4px;
+      }
+      .trash-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 5px 4px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      .trash-item:hover { background: #f8fafc; }
+      .trash-item-info { flex: 1; min-width: 0; }
+      .trash-item-info strong {
+        display: block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 12px;
+      }
+      .trash-item-info span { color: var(--muted); font-size: 11px; }
+      .trash-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+      .trash-item-actions button {
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 3px;
+        border: 1px solid var(--line);
+        background: #fff;
+        cursor: pointer;
+      }
+      .trash-item-actions button:hover { background: #f1f5f9; }
+      /* 문서 첨부 이미지 섹션 */
+      .doc-images {
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+      }
+      .doc-images-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+      .doc-images-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .doc-image-item {
+        width: 120px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        overflow: hidden;
+        background: #f8fafc;
+      }
+      .doc-image-item img {
+        width: 100%;
+        height: 80px;
+        object-fit: cover;
+        display: block;
+      }
+      .doc-image-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 3px 6px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+      .doc-image-footer span {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .img-delete-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1;
+        padding: 0 2px;
+        flex-shrink: 0;
+      }
+      .img-delete-btn:hover { color: var(--danger, #e53e3e); }
+      /* 휴지통 배지 */
+      .trash-badge {
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        min-width: 16px;
+        height: 16px;
+        padding: 0 3px;
+        border-radius: 8px;
+        background: #e53e3e;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 16px;
+        text-align: center;
+        pointer-events: none;
+      }
       .folder {
         margin-bottom: 6px;
       }

@@ -204,6 +204,12 @@ def _init_supabase_storage() -> None:
                     )
                     """
                 )
+                cur.execute(f"alter table {SUPABASE_DOCS_TABLE} add column if not exists deleted_at timestamptz")
+                cur.execute(f"create index if not exists {SUPABASE_DOCS_TABLE}_deleted_at_idx on {SUPABASE_DOCS_TABLE} (deleted_at) where deleted_at is not null")
+                cur.execute(f"alter table {SUPABASE_ASSETS_TABLE} add column if not exists deleted_at timestamptz")
+                cur.execute(f"create index if not exists {SUPABASE_ASSETS_TABLE}_deleted_at_idx on {SUPABASE_ASSETS_TABLE} (deleted_at) where deleted_at is not null")
+                cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where deleted_at < now() - interval '30 days'")
+                cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where deleted_at < now() - interval '30 days'")
             if SUPABASE_SEED_FROM_FILES:
                 cur.execute(f"select 1 from {SUPABASE_META_TABLE} where key = 'seed_done'")
                 if cur.fetchone() is None:
@@ -245,14 +251,14 @@ def _init_supabase_storage() -> None:
 def _db_doc_records() -> list[DocRecord]:
     with _db_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"select source, title, customer, content from {SUPABASE_DOCS_TABLE} order by source")
+            cur.execute(f"select source, title, customer, content from {SUPABASE_DOCS_TABLE} where deleted_at is null order by source")
             return [DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3]) for row in cur.fetchall()]
 
 
 def _db_asset_count() -> int:
     with _db_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"select count(*) from {SUPABASE_ASSETS_TABLE}")
+            cur.execute(f"select count(*) from {SUPABASE_ASSETS_TABLE} where deleted_at is null")
             return cur.fetchone()[0]
 
 
@@ -260,9 +266,9 @@ def _db_asset_paths(prefix: str = "") -> list[str]:
     with _db_connect() as conn:
         with conn.cursor() as cur:
             if prefix:
-                cur.execute(f"select path from {SUPABASE_ASSETS_TABLE} where path like %s order by path", (f"{prefix}%",))
+                cur.execute(f"select path from {SUPABASE_ASSETS_TABLE} where path like %s and deleted_at is null order by path", (f"{prefix}%",))
             else:
-                cur.execute(f"select path from {SUPABASE_ASSETS_TABLE} order by path")
+                cur.execute(f"select path from {SUPABASE_ASSETS_TABLE} where deleted_at is null order by path")
             return [row[0] for row in cur.fetchall()]
 
 
@@ -270,7 +276,7 @@ def _db_asset_record(path: str) -> AssetRecord | None:
     with _db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"select path, mime_type, content from {SUPABASE_ASSETS_TABLE} where path = %s",
+                f"select path, mime_type, content from {SUPABASE_ASSETS_TABLE} where path = %s and deleted_at is null",
                 (path,),
             )
             row = cur.fetchone()
@@ -279,7 +285,25 @@ def _db_asset_record(path: str) -> AssetRecord | None:
             return AssetRecord(path=row[0], mime_type=row[1], content=bytes(row[2]))
 
 
-def _db_delete_asset(path: str) -> None:
+def _db_soft_delete_asset(path: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"update {SUPABASE_ASSETS_TABLE} set deleted_at = now() where path = %s and deleted_at is null",
+                (path,),
+            )
+
+
+def _db_restore_asset(path: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"update {SUPABASE_ASSETS_TABLE} set deleted_at = null where path = %s",
+                (path,),
+            )
+
+
+def _db_permanent_delete_asset(path: str) -> None:
     with _db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where path = %s", (path,))
@@ -319,7 +343,7 @@ def _db_folder_exists(name: str) -> bool:
 def _db_folder_doc_count(name: str) -> int:
     with _db_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"select count(*) from {SUPABASE_DOCS_TABLE} where customer = %s", (name,))
+            cur.execute(f"select count(*) from {SUPABASE_DOCS_TABLE} where customer = %s and deleted_at is null", (name,))
             return cur.fetchone()[0]
 
 
@@ -405,7 +429,7 @@ def _db_doc_record(source: str) -> DocRecord | None:
     with _db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"select source, title, customer, content from {SUPABASE_DOCS_TABLE} where source = %s",
+                f"select source, title, customer, content from {SUPABASE_DOCS_TABLE} where source = %s and deleted_at is null",
                 (source,),
             )
             row = cur.fetchone()
@@ -435,10 +459,67 @@ def _db_update_doc(source: str, content: str) -> None:
             )
 
 
-def _db_delete_doc(source: str) -> None:
+def _db_soft_delete_doc(source: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"update {SUPABASE_DOCS_TABLE} set deleted_at = now() where source = %s and deleted_at is null",
+                (source,),
+            )
+
+
+def _db_restore_doc(source: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"update {SUPABASE_DOCS_TABLE} set deleted_at = null where source = %s",
+                (source,),
+            )
+
+
+def _db_permanent_delete_doc(source: str) -> None:
     with _db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where source = %s", (source,))
+
+
+def _extract_asset_refs(source: str, content: str) -> list[str]:
+    folder = PurePosixPath(source).parent.as_posix()
+    paths = []
+    for match in re.finditer(r'!\[[^\]]*\]\(([^)]+)\)', content):
+        raw = match.group(1).strip().split()[0]
+        if raw.startswith(("http://", "https://", "data:", "/")):
+            continue
+        resolved = f"{folder}/{raw}" if folder and folder != "." else raw
+        paths.append(resolved)
+    return paths
+
+
+def _db_cascade_soft_delete_assets(source: str, content: str) -> None:
+    paths = _extract_asset_refs(source, content)
+    if not paths:
+        return
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            for path in paths:
+                cur.execute(
+                    f"update {SUPABASE_ASSETS_TABLE} set deleted_at = now() where path = %s and deleted_at is null",
+                    (path,),
+                )
+
+
+def _db_trash_records() -> dict:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"select source, title, customer, deleted_at from {SUPABASE_DOCS_TABLE} where deleted_at is not null order by deleted_at desc"
+            )
+            docs = [{"source": r[0], "title": r[1], "customer": r[2], "deleted_at": r[3].isoformat()} for r in cur.fetchall()]
+            cur.execute(
+                f"select path, size_bytes, deleted_at from {SUPABASE_ASSETS_TABLE} where deleted_at is not null order by deleted_at desc"
+            )
+            assets = [{"path": r[0], "size_bytes": r[1], "deleted_at": r[2].isoformat()} for r in cur.fetchall()]
+    return {"docs": docs, "assets": assets}
 
 
 def _doc_records() -> list[DocRecord]:
@@ -1533,11 +1614,13 @@ def create_api_app():
             return _json_response({"error": "invalid json"}, status_code=400)
         source = str(payload.get("source", "")).strip()
         if SUPABASE_ENABLED:
-            if _db_doc_record(source) is None:
+            record = _db_doc_record(source)
+            if record is None:
                 return _json_response({"error": "document not found"}, status_code=404)
             if _is_system_source(source):
                 return _json_response({"error": "system document cannot be deleted"}, status_code=403)
-            _db_delete_doc(source)
+            _db_cascade_soft_delete_assets(source, record.content)
+            _db_soft_delete_doc(source)
             refresh_index()
             return {"ok": True, "source": source}
         path = _safe_doc_path(source)
@@ -1603,13 +1686,68 @@ def create_api_app():
         if SUPABASE_ENABLED:
             if _db_asset_record(path) is None:
                 return _json_response({"error": "asset not found"}, status_code=404)
-            _db_delete_asset(path)
+            _db_soft_delete_asset(path)
             return {"ok": True, "path": path}
         asset_file = _safe_file_asset_path(path)
         if asset_file is None:
             return _json_response({"error": "asset not found"}, status_code=404)
         asset_file.unlink()
         return {"ok": True, "path": path}
+
+    @api_app.get("/api/trash")
+    def api_trash():
+        if not SUPABASE_ENABLED:
+            return {"docs": [], "assets": []}
+        return _db_trash_records()
+
+    @api_app.post("/api/trash/restore")
+    async def api_trash_restore(request: Request):
+        if not SUPABASE_ENABLED:
+            return _json_response({"error": "trash requires Supabase storage"}, status_code=400)
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        item_type = str(payload.get("type", "")).strip()
+        key = str(payload.get("key", "")).strip()
+        if not key:
+            return _json_response({"error": "key is required"}, status_code=400)
+        if item_type == "doc":
+            _db_restore_doc(key)
+            refresh_index()
+        elif item_type == "asset":
+            _db_restore_asset(key)
+        else:
+            return _json_response({"error": "type must be 'doc' or 'asset'"}, status_code=400)
+        return {"ok": True, "type": item_type, "key": key}
+
+    @api_app.delete("/api/trash")
+    async def api_trash_delete(request: Request):
+        if not SUPABASE_ENABLED:
+            return _json_response({"error": "trash requires Supabase storage"}, status_code=400)
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        item_type = str(payload.get("type", "")).strip()
+        key = str(payload.get("key", "")).strip()
+        if item_type == "all":
+            with _db_connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where deleted_at is not null")
+                    cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where deleted_at is not null")
+            refresh_index()
+            return {"ok": True}
+        if not key:
+            return _json_response({"error": "key is required"}, status_code=400)
+        if item_type == "doc":
+            _db_permanent_delete_doc(key)
+            refresh_index()
+        elif item_type == "asset":
+            _db_permanent_delete_asset(key)
+        else:
+            return _json_response({"error": "type must be 'doc', 'asset', or 'all'"}, status_code=400)
+        return {"ok": True, "type": item_type, "key": key}
 
     @api_app.get("/api/search")
     def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10)):
