@@ -1561,18 +1561,25 @@ export function App() {
                     [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "참고자료 : " + n + "개"))
                   )
                 ),
-                search && h("div", { key: "search-answer", className: "answer" }, h(Markdown, { text: search.answer })),
-                search && h("div", { key: "search-results" },
-                  h("div", { className: "section-title" }, "검색 결과"),
-                  search.results.map((item) => h("button", {
-                    key: item.source + item.title,
-                    className: "result-item",
-                    onClick: () => openDoc(item.source)
-                  },
-                    h("strong", null, item.title),
-                    h("p", null, item.source + " / score " + item.score),
-                    h("p", null, item.snippet)
-                  ))
+                search && h("div", { key: "search-split", className: "search-split" },
+                  h("section", { className: "search-pane" },
+                    h("div", { className: "section-title" }, "검색 답변"),
+                    h("div", { className: "answer search-answer" }, h(Markdown, { text: search.answer }))
+                  ),
+                  h("section", { className: "search-pane" },
+                    h("div", { className: "section-title" }, "참고자료"),
+                    h("div", { className: "search-results" },
+                      search.results.map((item) => h("button", {
+                        key: item.source + item.title,
+                        className: "result-item",
+                        onClick: () => openDoc(item.source)
+                      },
+                        h("strong", null, item.title),
+                        h("p", null, item.source + " / score " + item.score),
+                        h("p", null, item.snippet)
+                      ))
+                    )
+                  )
                 )
               ] : [
                 h("form", { key: "question-form", className: "tool-form", onSubmit: askChat },
