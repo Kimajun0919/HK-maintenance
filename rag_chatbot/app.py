@@ -1016,44 +1016,45 @@ def _convert_docx_to_md(content: bytes) -> str:
     try:
         import io as _io
         from docx import Document
-        from docx.oxml.ns import qn as _qn
     except ImportError:
         return "# 변환 오류\n\n`python-docx` 패키지가 필요합니다. `pip install python-docx`"
+    try:
+        doc = Document(_io.BytesIO(content))
+        lines: list[str] = []
 
-    doc = Document(_io.BytesIO(content))
-    lines: list[str] = []
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            style = para.style.name.lower() if para.style else ""
+            if not text:
+                if lines and lines[-1] != "":
+                    lines.append("")
+                continue
+            if "heading 1" in style:
+                lines.append(f"# {text}")
+            elif "heading 2" in style:
+                lines.append(f"## {text}")
+            elif "heading 3" in style:
+                lines.append(f"### {text}")
+            elif "list" in style or "bullet" in style:
+                lines.append(f"- {text}")
+            else:
+                lines.append(text)
 
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        style = para.style.name.lower() if para.style else ""
-        if not text:
-            if lines and lines[-1] != "":
-                lines.append("")
-            continue
-        if "heading 1" in style:
-            lines.append(f"# {text}")
-        elif "heading 2" in style:
-            lines.append(f"## {text}")
-        elif "heading 3" in style:
-            lines.append(f"### {text}")
-        elif "list" in style or "bullet" in style:
-            lines.append(f"- {text}")
-        else:
-            lines.append(text)
+        for table in doc.tables:
+            if not table.rows:
+                continue
+            headers = [cell.text.strip().replace("|", "\\|") for cell in table.rows[0].cells]
+            lines.append("")
+            lines.append("| " + " | ".join(headers) + " |")
+            lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+            for row in table.rows[1:]:
+                cells = [cell.text.strip().replace("|", "\\|") for cell in row.cells]
+                lines.append("| " + " | ".join(cells) + " |")
+            lines.append("")
 
-    for table in doc.tables:
-        if not table.rows:
-            continue
-        headers = [cell.text.strip().replace("|", "\\|") for cell in table.rows[0].cells]
-        lines.append("")
-        lines.append("| " + " | ".join(headers) + " |")
-        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
-        for row in table.rows[1:]:
-            cells = [cell.text.strip().replace("|", "\\|") for cell in row.cells]
-            lines.append("| " + " | ".join(cells) + " |")
-        lines.append("")
-
-    return "\n".join(lines).strip()
+        return "\n".join(lines).strip()
+    except Exception as exc:
+        return f"# 변환 오류\n\n{exc}"
 
 
 def _convert_pdf_to_md(content: bytes) -> str:
@@ -1062,7 +1063,6 @@ def _convert_pdf_to_md(content: bytes) -> str:
         from pypdf import PdfReader
     except ImportError:
         return "# 변환 오류\n\n`pypdf` 패키지가 필요합니다. `pip install pypdf`"
-
     try:
         reader = PdfReader(_io.BytesIO(content))
         if not reader.pages:
