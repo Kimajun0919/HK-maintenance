@@ -1794,7 +1794,7 @@ const h = React.createElement;
                   ),
                   h("div", { className: "toolbar" },
                     h("select", { value: topK, onChange: (event) => setTopK(Number(event.target.value)) },
-                      [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "근거 " + n))
+                      [3, 5, 8, 10].map((n) => h("option", { key: n, value: n }, "참고자료 : " + n + "개"))
                     ),
                     h("label", { className: "toggle" },
                       h("input", { type: "checkbox", checked: useLlm, onChange: (event) => setUseLlm(event.target.checked) }),
