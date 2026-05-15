@@ -74,27 +74,16 @@ def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
     if not api_key:
         return "Claude API 키를 입력해야 합니다."
 
-    results, context = rag.retrieve(query, top_k)
+    results, context = rag.retrieve_for_llm(query, top_k)
     if not context:
         return "관련 문서를 찾지 못했습니다. 고객사명, 작업명, 서버/계정/경로 같은 단어를 포함해 다시 질문해 주세요."
 
     sources = "\n".join(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}" for chunk, score in results)
-    prompt = f"""질문:
-{query}
-
-문서 근거:
-{context}
-
-답변 조건:
-- 반드시 위 문서 근거 안의 내용만 사용하세요.
-- 계정, 경로, 서버, 작업 절차, 주의사항은 원문 값을 임의로 바꾸지 마세요.
-- 근거에 없으면 "확인 필요"라고 답하세요.
-- 답변 마지막에 참고 문서 파일명을 bullet로 정리하세요.
-"""
+    prompt = rag._build_llm_user_prompt(query, context)
     payload = {
         "model": model,
         "max_tokens": MAX_NEW_TOKENS,
-        "system": "당신은 HK 유지보수 문서 RAG 도우미입니다. 제공된 문서 근거만 바탕으로 한국어로 간결하고 정확하게 답변합니다.",
+        "system": rag.SYSTEM_INSTRUCTION_KO,
         "messages": [{"role": "user", "content": prompt}],
     }
     request = urllib.request.Request(
@@ -134,28 +123,17 @@ def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str
     if not chat_path.startswith("/"):
         chat_path = "/" + chat_path
 
-    results, context = rag.retrieve(query, top_k)
+    results, context = rag.retrieve_for_llm(query, top_k)
     if not context:
         return "관련 문서를 찾지 못했습니다. 고객사명, 작업명, 서버/계정/경로 같은 단어를 포함해 다시 질문해 주세요."
 
     sources = "\n".join(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}" for chunk, score in results)
-    prompt = f"""질문:
-{query}
-
-문서 근거:
-{context}
-
-답변 조건:
-- 반드시 위 문서 근거 안의 내용만 사용하세요.
-- 계정, 경로, 서버, 작업 절차, 주의사항은 원문 값을 임의로 바꾸지 마세요.
-- 근거에 없으면 "확인 필요"라고 답하세요.
-- 답변 마지막에 참고 문서 파일명을 bullet로 정리하세요.
-"""
+    prompt = rag._build_llm_user_prompt(query, context)
     payload = {
         "model": model,
         "max_tokens": MAX_NEW_TOKENS,
         "messages": [
-            {"role": "system", "content": "당신은 HK 유지보수 문서 RAG 도우미입니다. 제공된 문서 근거만 바탕으로 한국어로 간결하고 정확하게 답변합니다."},
+            {"role": "system", "content": rag.SYSTEM_INSTRUCTION_KO},
             {"role": "user", "content": prompt},
         ],
     }
