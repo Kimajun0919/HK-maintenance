@@ -1071,7 +1071,6 @@ const h = React.createElement;
           h("aside", { className: "right-sidebar" },
             h("div", { className: "tool-head" },
               h("div", { className: "panel-title-row" },
-                h("h2", null, "검색 / 질문"),
                 h("div", { className: "panel-actions" },
                   h("button", {
                     type: "button",
@@ -1079,7 +1078,8 @@ const h = React.createElement;
                     title: "오른쪽 사이드바 접기",
                     onClick: () => setRightCollapsed(true)
                   }, "›")
-                )
+                ),
+                h("h2", null, "검색 / 질문")
               ),
               h("p", null, "검색 결과에서 자료를 열거나 문서 기반 답변을 확인")
             ),
