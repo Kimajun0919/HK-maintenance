@@ -328,6 +328,31 @@
         border-bottom: 1px solid var(--line);
         background: #fbfcfe;
       }
+      .doc-header-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .doc-actions {
+        flex: 0 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        justify-content: flex-end;
+      }
+      .doc-actions button {
+        min-height: 32px;
+        padding: 0 10px;
+        font-size: 13px;
+      }
+      .doc-actions .danger {
+        border-color: #fecaca;
+        color: #991b1b;
+      }
+      .doc-actions .danger:hover {
+        background: #fff1f2;
+      }
       .doc-header .path {
         margin-bottom: 8px;
         color: var(--muted);
@@ -341,6 +366,50 @@
         letter-spacing: 0;
       }
       .doc-body { padding: 20px; }
+      .doc-editor {
+        width: 100%;
+        min-height: calc(100vh - 210px);
+        resize: vertical;
+        border: 0;
+        border-radius: 0;
+        padding: 20px;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      .doc-editor:focus {
+        outline: 2px solid #99f6e4;
+        outline-offset: -2px;
+      }
+      .create-panel {
+        max-width: 760px;
+        margin: 0 auto 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        overflow: hidden;
+      }
+      .create-panel header {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+        background: #fbfcfe;
+        font-weight: 700;
+      }
+      .create-form {
+        display: grid;
+        gap: 10px;
+        padding: 14px 16px 16px;
+      }
+      .create-form .form-grid {
+        display: grid;
+        grid-template-columns: 180px minmax(0, 1fr);
+        gap: 10px;
+      }
+      .create-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
       .empty {
         color: var(--muted);
         text-align: center;

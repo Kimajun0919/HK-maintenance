@@ -146,6 +146,12 @@ const h = React.createElement;
         const [openFolders, setOpenFolders] = React.useState({});
         const [selected, setSelected] = React.useState("");
         const [doc, setDoc] = React.useState(null);
+        const [editMode, setEditMode] = React.useState(false);
+        const [draft, setDraft] = React.useState("");
+        const [showCreate, setShowCreate] = React.useState(false);
+        const [newCustomer, setNewCustomer] = React.useState("");
+        const [newTitle, setNewTitle] = React.useState("");
+        const [newContent, setNewContent] = React.useState("# 새 문서\n\n## 본문\n\n");
         const [activeTool, setActiveTool] = React.useState("search");
         const [searchQuery, setSearchQuery] = React.useState("");
         const [search, setSearch] = React.useState(null);
@@ -209,18 +215,28 @@ const h = React.createElement;
         };
 
         React.useEffect(() => {
-          api("/api/meta").then((data) => {
-            setMeta(data);
-            if (data.claudeDefaultModel) setClaudeModel(data.claudeDefaultModel);
-          }).catch((err) => setError(err.message));
-          api("/api/docs").then((data) => {
+          refreshMeta();
+          loadDocs();
+        }, []);
+
+        const loadDocs = () => {
+          return api("/api/docs").then((data) => {
             const list = data.docs || [];
             setDocs(list);
             const firstFolders = {};
             list.slice(0, 1).forEach((item) => { firstFolders[item.customer || "기타"] = true; });
-            setOpenFolders(firstFolders);
+            setOpenFolders((prev) => Object.keys(prev).length ? prev : firstFolders);
+            return list;
           }).catch((err) => setError(err.message));
-        }, []);
+        };
+
+        const refreshMeta = () => {
+          return api("/api/meta").then((data) => {
+            setMeta(data);
+            if (data.claudeDefaultModel) setClaudeModel(data.claudeDefaultModel);
+            return data;
+          }).catch((err) => setError(err.message));
+        };
 
         const groupedDocs = React.useMemo(() => {
           const q = docFilter.trim().toLowerCase();
@@ -237,10 +253,15 @@ const h = React.createElement;
 
         const openDoc = (source) => {
           setSelected(source);
+          setEditMode(false);
+          setShowCreate(false);
           setLoading("doc");
           setError("");
           api("/api/doc?source=" + encodeURIComponent(source))
-            .then(setDoc)
+            .then((data) => {
+              setDoc(data);
+              setDraft(data.content || "");
+            })
             .catch((err) => setError(err.message))
             .finally(() => setLoading(""));
         };
@@ -279,6 +300,87 @@ const h = React.createElement;
             }),
           })
             .then((data) => setChatAnswer(data.answer || ""))
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const startCreate = () => {
+          setShowCreate(true);
+          setEditMode(false);
+          setDoc(null);
+          setSelected("");
+          setNewCustomer("");
+          setNewTitle("");
+          setNewContent("# 새 문서\n\n## 본문\n\n");
+        };
+
+        const createDoc = (event) => {
+          event && event.preventDefault();
+          if (!newTitle.trim()) {
+            setError("문서 제목을 입력하세요.");
+            return;
+          }
+          setLoading("save");
+          setError("");
+          api("/api/doc", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              customer: newCustomer.trim() || "미분류",
+              title: newTitle.trim(),
+              content: newContent,
+            }),
+          })
+            .then((data) => {
+              setShowCreate(false);
+              setDoc(data);
+              setDraft(data.content || "");
+              setSelected(data.source);
+              setEditMode(false);
+              const folder = (data.source || "").split("/")[0] || "기타";
+              setOpenFolders((prev) => ({ ...prev, [folder]: true }));
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const saveDoc = () => {
+          if (!doc || !draft.trim()) return;
+          setLoading("save");
+          setError("");
+          api("/api/doc", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source: doc.source, content: draft }),
+          })
+            .then((data) => {
+              setDoc(data);
+              setDraft(data.content || "");
+              setEditMode(false);
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const deleteDoc = () => {
+          if (!doc) return;
+          if (!confirm("이 문서를 삭제할까요? 삭제 후에는 현재 배포 파일 기준으로 복구해야 합니다.")) return;
+          setLoading("delete");
+          setError("");
+          api("/api/doc", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source: doc.source }),
+          })
+            .then(() => {
+              setDoc(null);
+              setDraft("");
+              setSelected("");
+              setEditMode(false);
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
             .catch((err) => setError(err.message))
             .finally(() => setLoading(""));
         };
@@ -333,7 +435,13 @@ const h = React.createElement;
                 value: docFilter,
                 onChange: (event) => setDocFilter(event.target.value),
                 placeholder: "자료 목록 필터"
-              })
+              }),
+              h("button", {
+                type: "button",
+                className: "primary",
+                onClick: startCreate,
+                style: { marginTop: "8px", width: "100%", minHeight: "34px" }
+              }, "새 문서")
             ),
             h("div", { className: "folder-list" },
               groupedDocs.map(([folder, items]) => {
@@ -390,12 +498,57 @@ const h = React.createElement;
             h("section", { className: "reader" },
               error && h("p", { className: "error" }, error),
               chatAnswer && h("div", { className: "answer" }, h(Markdown, { text: chatAnswer })),
+              showCreate && h("section", { className: "create-panel" },
+                h("header", null, "새 문서 만들기"),
+                h("form", { className: "create-form", onSubmit: createDoc },
+                  h("div", { className: "form-grid" },
+                    h("input", {
+                      value: newCustomer,
+                      onChange: (event) => setNewCustomer(event.target.value),
+                      placeholder: "폴더/고객명"
+                    }),
+                    h("input", {
+                      value: newTitle,
+                      onChange: (event) => setNewTitle(event.target.value),
+                      placeholder: "문서 제목"
+                    })
+                  ),
+                  h("textarea", {
+                    rows: 10,
+                    value: newContent,
+                    onChange: (event) => setNewContent(event.target.value)
+                  }),
+                  h("div", { className: "create-actions" },
+                    h("button", { type: "button", onClick: () => setShowCreate(false) }, "취소"),
+                    h("button", { type: "submit", className: "primary" }, loading === "save" ? "저장 중" : "생성")
+                  )
+                )
+              ),
               doc ? h("article", { className: "doc-view" },
                 h("div", { className: "doc-header" },
-                  h("div", { className: "path" }, doc.source),
-                  h("h2", null, doc.title)
+                  h("div", { className: "doc-header-row" },
+                    h("div", null,
+                      h("div", { className: "path" }, doc.source),
+                      h("h2", null, doc.title)
+                    ),
+                    h("div", { className: "doc-actions" },
+                      editMode ? [
+                        h("button", { key: "cancel", type: "button", onClick: () => { setDraft(doc.content || ""); setEditMode(false); } }, "취소"),
+                        h("button", { key: "save", type: "button", className: "primary", onClick: saveDoc }, loading === "save" ? "저장 중" : "저장")
+                      ] : [
+                        h("button", { key: "edit", type: "button", onClick: () => { setDraft(doc.content || ""); setEditMode(true); } }, "수정"),
+                        h("button", { key: "delete", type: "button", className: "danger", onClick: deleteDoc }, loading === "delete" ? "삭제 중" : "삭제")
+                      ]
+                    )
+                  )
                 ),
-                h("div", { className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source }))
+                editMode
+                  ? h("textarea", {
+                      className: "doc-editor",
+                      value: draft,
+                      onChange: (event) => setDraft(event.target.value)
+                    })
+                  : h("div", { className: "doc-body" }, h(Markdown, { text: doc.content, source: doc.source }))
               ) : h("div", { className: "reader-empty" },
                 h("div", { className: "empty" }, loading === "doc" ? "자료를 여는 중입니다." : "왼쪽에서 자료를 선택하거나 오른쪽에서 검색하세요.")
               )

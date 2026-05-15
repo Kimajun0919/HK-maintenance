@@ -415,6 +415,12 @@ chunks = load_chunks()
 retriever = Retriever(chunks)
 
 
+def refresh_index() -> None:
+    global chunks, retriever
+    chunks = load_chunks()
+    retriever = Retriever(chunks)
+
+
 def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
     query = query.strip()
     if not query:
@@ -646,6 +652,47 @@ def _safe_doc_path(source: str) -> Path | None:
     return path
 
 
+def _safe_new_doc_path(source: str) -> Path | None:
+    normalized = urllib.parse.unquote(str(source or "")).replace("\\", "/").strip("/")
+    if not normalized or normalized.startswith(".") or "/." in normalized:
+        return None
+    if not normalized.lower().endswith(".md"):
+        normalized += ".md"
+    try:
+        path = (DOCS_DIR / normalized).resolve()
+        path.relative_to(DOCS_DIR)
+    except (ValueError, RuntimeError):
+        return None
+    if path.name in {"README.md", "SIMPLIFY_CHANGELOG.md", "SIMPLIFY_VALIDATION_REPORT.md"}:
+        return None
+    return path
+
+
+def _slug_part(value: str, fallback: str = "document") -> str:
+    value = re.sub(r'[<>:"|?*\x00-\x1f]+', "", str(value or "")).strip()
+    value = value.replace("\\", "/").split("/")[-1].strip()
+    value = re.sub(r"\s+", "_", value)
+    return value or fallback
+
+
+def _doc_source_from_payload(payload: dict) -> str | None:
+    source = str(payload.get("source", "")).strip()
+    if source:
+        return source
+    customer = _slug_part(str(payload.get("customer", "")).strip(), "미분류")
+    title = _slug_part(str(payload.get("title", "")).strip(), "새_문서")
+    return f"{customer}/{title}.md"
+
+
+def _is_system_doc(path: Path) -> bool:
+    return path.name.startswith("READABILITY_") or path.name in {
+        "README.md",
+        "SIMPLIFY_CHANGELOG.md",
+        "SIMPLIFY_VALIDATION_REPORT.md",
+        "HK_CUSTOMER_INFO_INDEX.md",
+    }
+
+
 def _safe_asset_path(source: str, asset_path: str) -> Path | None:
     doc_path = _safe_doc_path(source)
     if doc_path is None:
@@ -737,6 +784,63 @@ def create_api_app():
         if path is None:
             return _json_response({"error": "document not found"}, status_code=404)
         return {"source": source, "title": path.stem, "content": path.read_text(encoding="utf-8", errors="replace")}
+
+    @api_app.post("/api/doc")
+    async def api_create_doc(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        source = _doc_source_from_payload(payload)
+        path = _safe_new_doc_path(source or "")
+        if path is None:
+            return _json_response({"error": "invalid document path"}, status_code=400)
+        if path.exists():
+            return _json_response({"error": "document already exists"}, status_code=409)
+        content = str(payload.get("content", "")).replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not content:
+            title = path.stem.replace("_", " ")
+            content = f"# {title}\n\n## 본문\n\n"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content.rstrip() + "\n", encoding="utf-8", newline="\n")
+        refresh_index()
+        rel = path.relative_to(DOCS_DIR).as_posix()
+        return {"source": rel, "title": path.stem, "content": path.read_text(encoding="utf-8", errors="replace")}
+
+    @api_app.put("/api/doc")
+    async def api_update_doc(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        source = str(payload.get("source", "")).strip()
+        path = _safe_doc_path(source)
+        if path is None:
+            return _json_response({"error": "document not found"}, status_code=404)
+        if _is_system_doc(path):
+            return _json_response({"error": "system document cannot be edited"}, status_code=403)
+        content = str(payload.get("content", "")).replace("\r\n", "\n").replace("\r", "\n")
+        if not content.strip():
+            return _json_response({"error": "content is empty"}, status_code=400)
+        path.write_text(content.rstrip() + "\n", encoding="utf-8", newline="\n")
+        refresh_index()
+        return {"source": source, "title": path.stem, "content": path.read_text(encoding="utf-8", errors="replace")}
+
+    @api_app.delete("/api/doc")
+    async def api_delete_doc(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        source = str(payload.get("source", "")).strip()
+        path = _safe_doc_path(source)
+        if path is None:
+            return _json_response({"error": "document not found"}, status_code=404)
+        if _is_system_doc(path):
+            return _json_response({"error": "system document cannot be deleted"}, status_code=403)
+        path.unlink()
+        refresh_index()
+        return {"ok": True, "source": source}
 
     @api_app.get("/api/asset")
     def api_asset(source: str = Query(...), path: str = Query(...)):
