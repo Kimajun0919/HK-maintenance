@@ -1,0 +1,68 @@
+{
+  "bm25": {
+    "k1": 1.5,
+    "b": 0.75
+  },
+  "boost": {
+    "title_per_hit": 0.12,
+    "title_cap": 0.36,
+    "source_per_hit": 0.07,
+    "source_cap": 0.21,
+    "folder": 0.5,
+    "exact_phrase_title": 0.25,
+    "exact_phrase_source": 0.15,
+    "access_per_hit": 0.035,
+    "access_cap": 0.28,
+    "common_folder_penalty": 0.35
+  },
+  "intent": {
+    "access_info": {
+      "top_k": 3,
+      "candidate_k": 25,
+      "max_context_chars": 1100,
+      "snippets_per_chunk": 2
+    },
+    "account_info": {
+      "top_k": 3,
+      "candidate_k": 25,
+      "max_context_chars": 1200,
+      "snippets_per_chunk": 2
+    },
+    "report": {
+      "top_k": 4,
+      "candidate_k": 30,
+      "max_context_chars": 2000,
+      "snippets_per_chunk": 3
+    },
+    "troubleshooting": {
+      "top_k": 5,
+      "candidate_k": 35,
+      "max_context_chars": 2800,
+      "snippets_per_chunk": 3
+    },
+    "feature_explanation": {
+      "top_k": 5,
+      "candidate_k": 35,
+      "max_context_chars": 2500,
+      "snippets_per_chunk": 3
+    },
+    "summary": {
+      "top_k": 8,
+      "candidate_k": 40,
+      "max_context_chars": 4000,
+      "snippets_per_chunk": 2
+    },
+    "general_search": {
+      "top_k": 5,
+      "candidate_k": 40,
+      "max_context_chars": 2200,
+      "snippets_per_chunk": 2
+    }
+  },
+  "prompt": {
+    "system_instruction": "제공된 문서 근거만 사용하여 답변합니다. 근거에 충분한 정보가 없으면 '제공된 문서에 해당 정보가 없습니다'라고 답합니다. 추측하지 않습니다. URL, 계정, 일정, 비용, 이름, 기술 정보를 임의로 만들지 않습니다. 간결하게 답변하며, 관련 섹션 또는 파일명을 언급하면 더 좋습니다."
+  },
+  "general": {
+    "max_new_tokens": 512
+  }
+}
