@@ -39,7 +39,7 @@ GitHub 연동 자동 배포. 카드 불필요, 무료 티어 사용 가능.
 
 ```powershell
 # .env에 HF_TOKEN, HF_SPACE_ID, HF_DEPLOY=1 설정 후
-python deploy_hf_space.py
+python scripts/deploy_hf_space.py
 ```
 
 HuggingFace Space 시크릿에 `SUPABASE_DB_URL`, `SUPABASE_SEED_FROM_FILES=0` 추가 필요.

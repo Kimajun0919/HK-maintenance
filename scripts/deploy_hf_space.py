@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 SPACE_DIR = ROOT / "hf_space_bundle"
 
 
@@ -44,10 +44,8 @@ def prepare_bundle() -> None:
     copytree(ROOT / "rag_chatbot" / "web", SPACE_DIR / "web")
     copytree(ROOT / "organized_maintenance_docs_simple", SPACE_DIR / "organized_maintenance_docs_simple")
 
-    base_requirements = (ROOT / "rag_chatbot" / "requirements.txt").read_text(encoding="utf-8").splitlines()
-    llm_requirements = (ROOT / "rag_chatbot" / "requirements-llm.txt").read_text(encoding="utf-8").splitlines()
-    requirements = [line for line in base_requirements + llm_requirements if line.strip()]
-    (SPACE_DIR / "requirements.txt").write_text("\n".join(requirements) + "\n", encoding="utf-8")
+    requirements = (ROOT / "rag_chatbot" / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    (SPACE_DIR / "requirements.txt").write_text("\n".join(r for r in requirements if r.strip()) + "\n", encoding="utf-8")
 
     readme = SPACE_DIR / "README.md"
     text = readme.read_text(encoding="utf-8")
