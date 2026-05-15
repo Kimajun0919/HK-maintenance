@@ -17,6 +17,11 @@ const h = React.createElement;
             h("path", { d: "M9 13h6" })
           );
         }
+        if (name === "folder") {
+          return h("svg", common,
+            h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
+          );
+        }
         if (name === "sort-asc") {
           return h("svg", common,
             h("line", { x1: 3, y1: 6, x2: 13, y2: 6 }),
@@ -295,6 +300,11 @@ const h = React.createElement;
           try { return new Set(JSON.parse(localStorage.getItem("hk.pinnedFolders") || "[]")); } catch { return new Set(); }
         });
         const [dragOverFolder, setDragOverFolder] = React.useState("");
+        const [folderManagerOpen, setFolderManagerOpen] = React.useState(false);
+        const [fmRenaming, setFmRenaming] = React.useState("");
+        const [fmRenameValue, setFmRenameValue] = React.useState("");
+        const [fmCreating, setFmCreating] = React.useState(false);
+        const [fmNewName, setFmNewName] = React.useState("");
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -636,6 +646,53 @@ const h = React.createElement;
           });
         };
 
+        const fmSubmitRename = (event) => {
+          event && event.preventDefault();
+          const newName = fmRenameValue.trim();
+          if (!fmRenaming || !newName) { setFmRenaming(""); return; }
+          const oldName = fmRenaming;
+          setLoading("folder");
+          api("/api/folder", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: oldName, newName }),
+          })
+            .then(() => {
+              setFmRenaming(""); setFmRenameValue("");
+              setOpenFolders((prev) => { const n = { ...prev, [newName]: prev[oldName] }; delete n[oldName]; return n; });
+              setPinnedFolders((prev) => {
+                if (!prev.has(oldName)) return prev;
+                const n = new Set(prev); n.delete(oldName); n.add(newName);
+                localStorage.setItem("hk.pinnedFolders", JSON.stringify([...n])); return n;
+              });
+              setFolderOrder((prev) => {
+                if (!prev) return prev;
+                const n = prev.map((x) => x === oldName ? newName : x);
+                localStorage.setItem("hk.folderOrder", JSON.stringify(n)); return n;
+              });
+              if (doc && doc.source.startsWith(oldName + "/"))
+                openDoc(newName + "/" + doc.source.slice(oldName.length + 1));
+              return Promise.all([loadDocs(), refreshMeta()]);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
+        const fmSubmitCreate = (event) => {
+          event && event.preventDefault();
+          const name = fmNewName.trim();
+          if (!name) { setFmCreating(false); return; }
+          setLoading("folder");
+          api("/api/folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          })
+            .then(() => { setFmNewName(""); setFmCreating(false); return Promise.all([loadDocs(), refreshMeta()]); })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
         const runSearch = (event) => {
           event && event.preventDefault();
           const term = searchQuery.trim();
@@ -878,6 +935,80 @@ const h = React.createElement;
           style: appStyle,
           onClick: () => explorerMenu && setExplorerMenu(null)
         },
+          folderManagerOpen && h("div", { className: "modal-backdrop", onMouseDown: () => { setFolderManagerOpen(false); setFmRenaming(""); setFmCreating(false); } },
+            h("section", { className: "fm-modal", onMouseDown: (e) => e.stopPropagation() },
+              h("header", { className: "fm-header" },
+                h("div", { className: "fm-title" },
+                  h(Icon, { name: "folder" }),
+                  h("strong", null, "폴더 관리"),
+                  h("span", { className: "fm-subtitle" }, `${folders.length}개`)
+                ),
+                h("button", { type: "button", className: "icon-button", onClick: () => setFolderManagerOpen(false) }, "×")
+              ),
+              h("div", { className: "fm-toolbar" },
+                h("button", { type: "button", className: "fm-new-btn", onClick: () => { setFmCreating(true); setFmNewName(""); setFmRenaming(""); } },
+                  "+ 새 폴더"
+                )
+              ),
+              h("div", { className: "fm-body" },
+                groupedDocs.map(([folderName, items]) => {
+                  const isPinned = pinnedFolders.has(folderName);
+                  const isRenaming = fmRenaming === folderName;
+                  const docCount = items.length;
+                  return h("div", { key: folderName, className: "fm-card" + (isPinned ? " fm-pinned" : "") },
+                    h("div", { className: "fm-card-icon" },
+                      h("svg", { width: 48, height: 48, viewBox: "0 0 24 24", fill: isPinned ? "#f59e0b" : "#60a5fa", stroke: isPinned ? "#d97706" : "#3b82f6", strokeWidth: 1, "aria-hidden": "true" },
+                        h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
+                      ),
+                      isPinned && h("span", { className: "fm-pin-badge" }, "📌")
+                    ),
+                    isRenaming
+                      ? h("form", { className: "fm-rename-form", onSubmit: fmSubmitRename },
+                          h("input", {
+                            className: "fm-rename-input",
+                            value: fmRenameValue,
+                            onChange: (e) => setFmRenameValue(e.target.value),
+                            autoFocus: true,
+                            onBlur: fmSubmitRename,
+                            onKeyDown: (e) => { if (e.key === "Escape") setFmRenaming(""); }
+                          })
+                        )
+                      : h("span", {
+                          className: "fm-card-name",
+                          title: folderName,
+                          onDoubleClick: () => { setFmRenaming(folderName); setFmRenameValue(folderName); }
+                        }, folderName),
+                    h("span", { className: "fm-card-count" }, `문서 ${docCount}개`),
+                    h("div", { className: "fm-card-actions" },
+                      h("button", { type: "button", title: isPinned ? "고정 해제" : "고정하기", onClick: () => togglePinFolder(folderName) }, isPinned ? "고정 해제" : "고정"),
+                      h("button", { type: "button", title: "이름 변경", onClick: () => { setFmRenaming(folderName); setFmRenameValue(folderName); } }, "이름"),
+                      h("button", { type: "button", title: "삭제", className: "danger-text", onClick: () => deleteFolder(folderName) }, "삭제")
+                    )
+                  );
+                }),
+                fmCreating && h("div", { className: "fm-card fm-creating" },
+                  h("div", { className: "fm-card-icon" },
+                    h("svg", { width: 48, height: 48, viewBox: "0 0 24 24", fill: "#e2e8f0", stroke: "#94a3b8", strokeWidth: 1, "aria-hidden": "true" },
+                      h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
+                    )
+                  ),
+                  h("form", { className: "fm-rename-form", onSubmit: fmSubmitCreate },
+                    h("input", {
+                      className: "fm-rename-input",
+                      value: fmNewName,
+                      placeholder: "폴더명",
+                      onChange: (e) => setFmNewName(e.target.value),
+                      autoFocus: true,
+                      onBlur: () => { if (!fmNewName.trim()) { setFmCreating(false); } else fmSubmitCreate(); },
+                      onKeyDown: (e) => { if (e.key === "Escape") { setFmCreating(false); setFmNewName(""); } }
+                    })
+                  )
+                ),
+                groupedDocs.length === 0 && !fmCreating && h("div", { className: "fm-empty" }, "폴더가 없습니다. 새 폴더를 만들어보세요.")
+              )
+            )
+          ),
+
           folderPickerMode && h("div", { className: "modal-backdrop", onMouseDown: closeFolderPicker },
             h("section", { className: "folder-modal", onMouseDown: (event) => event.stopPropagation() },
               h("header", null,
@@ -959,6 +1090,12 @@ const h = React.createElement;
                     setError("");
                   }
                 }, "⌂"),
+                h("button", {
+                  type: "button",
+                  className: "icon-button explorer-action" + (folderManagerOpen ? " active" : ""),
+                  title: "폴더 관리",
+                  onClick: () => setFolderManagerOpen((v) => !v)
+                }, h(Icon, { name: "folder" })),
                 h("button", {
                   type: "button",
                   className: "icon-button explorer-action",
