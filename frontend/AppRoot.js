@@ -60,6 +60,44 @@ export function App() {
         const [draggingSide, setDraggingSide] = React.useState("");
         const [loading, setLoading] = React.useState("");
         const [error, setError] = React.useState("");
+
+        const ERROR_MAP = [
+          ["document not found", "문서를 찾을 수 없습니다."],
+          ["folder not found", "폴더를 찾을 수 없습니다."],
+          ["folder is not empty", "폴더가 비어 있지 않아 삭제할 수 없습니다."],
+          ["asset not found", "이미지를 찾을 수 없습니다."],
+          ["document already exists", "이미 존재하는 문서입니다."],
+          ["system document cannot be deleted", "시스템 문서는 삭제할 수 없습니다."],
+          ["system document cannot be edited", "시스템 문서는 수정할 수 없습니다."],
+          ["invalid folder name", "올바르지 않은 폴더명입니다."],
+          ["invalid document", "올바르지 않은 문서입니다."],
+          ["only image uploads are supported", "이미지 파일만 업로드할 수 있습니다."],
+          ["file is empty", "파일이 비어 있습니다."],
+          ["file is required", "파일을 선택해 주세요."],
+          ["path is required", "경로가 필요합니다."],
+          ["query is required", "질문을 입력해 주세요."],
+          ["invalid json", "요청 형식이 잘못되었습니다."],
+          ["Failed to fetch", "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요."],
+          ["NetworkError", "네트워크 오류가 발생했습니다."],
+          ["404", "요청한 리소스를 찾을 수 없습니다."],
+          ["500", "서버 오류가 발생했습니다."],
+          ["401", "인증이 필요합니다."],
+          ["403", "접근 권한이 없습니다."],
+        ];
+        const toKorean = (msg) => {
+          if (!msg) return msg;
+          const lower = msg.toLowerCase();
+          for (const [key, ko] of ERROR_MAP) {
+            if (lower.includes(key.toLowerCase())) return ko;
+          }
+          return msg;
+        };
+
+        React.useEffect(() => {
+          if (!error) return;
+          const t = setTimeout(() => setError(""), 6000);
+          return () => clearTimeout(t);
+        }, [error]);
         const [trashOpen, setTrashOpen] = React.useState(false);
         const [trashItems, setTrashItems] = React.useState(null);
         const [folderOrder, setFolderOrder] = React.useState(() => {
@@ -911,6 +949,10 @@ export function App() {
           style: appStyle,
           onClick: () => explorerMenu && setExplorerMenu(null)
         },
+          error && h("div", { className: "toast-error" },
+            h("span", { className: "toast-error-msg" }, toKorean(error)),
+            h("button", { type: "button", className: "toast-error-close", onClick: () => setError("") }, "×")
+          ),
           folderManagerOpen && h("div", { className: "modal-backdrop", onMouseDown: () => { setFolderManagerOpen(false); setFmRenaming(""); setFmCreating(false); setFmSelectedFolder(null); clearFmSelection(); } },
             h("section", { className: "fm-modal", onMouseDown: (e) => e.stopPropagation() },
 
@@ -1484,7 +1526,6 @@ export function App() {
               }, "‹")
             ),
             h("section", { className: "reader " + (openDocs.length > 0 ? "has-doc-windows" : "") },
-              error && h("p", { className: "error" }, error),
               showCreate && h("section", { className: "create-panel" },
                 h("header", null, "새 문서 만들기"),
                 h("form", { className: "create-form", onSubmit: createDoc },

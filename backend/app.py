@@ -369,23 +369,32 @@ def _doc_source_from_payload(payload: dict) -> str | None:
     return f"{customer}/{title}.md"
 
 
+_SYSTEM_FILENAMES = {
+    "README.md",
+    "SIMPLIFY_CHANGELOG.md",
+    "SIMPLIFY_VALIDATION_REPORT.md",
+    "HK_CUSTOMER_INFO_INDEX.md",
+}
+
+
 def _is_system_doc(path: Path) -> bool:
-    return path.name.startswith("READABILITY_") or path.name in {
-        "README.md",
-        "SIMPLIFY_CHANGELOG.md",
-        "SIMPLIFY_VALIDATION_REPORT.md",
-        "HK_CUSTOMER_INFO_INDEX.md",
-    }
+    # 루트 레벨 파일만 시스템 파일로 보호
+    try:
+        relative = path.relative_to(DOCS_DIR)
+    except ValueError:
+        return True
+    if len(relative.parts) > 1:
+        return False
+    return path.name.startswith("READABILITY_") or path.name in _SYSTEM_FILENAMES
 
 
 def _is_system_source(source: str) -> bool:
+    parts = PurePosixPath(source).parts
+    # 하위 폴더 안의 파일은 시스템 파일이 아님
+    if len(parts) > 1:
+        return False
     name = Path(source).name
-    return name.startswith("READABILITY_") or name in {
-        "README.md",
-        "SIMPLIFY_CHANGELOG.md",
-        "SIMPLIFY_VALIDATION_REPORT.md",
-        "HK_CUSTOMER_INFO_INDEX.md",
-    }
+    return name.startswith("READABILITY_") or name in _SYSTEM_FILENAMES
 
 
 def _safe_file_asset_path(rel_path: str) -> Path | None:
