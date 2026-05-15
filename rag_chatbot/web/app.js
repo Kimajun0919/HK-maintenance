@@ -1557,12 +1557,65 @@ const h = React.createElement;
                       placeholder: "문서 제목"
                     })
                   ),
+                  h("label", { className: "file-attach-zone",
+                    onDragOver: (e) => { e.preventDefault(); e.currentTarget.classList.add("drag-over"); },
+                    onDragLeave: (e) => e.currentTarget.classList.remove("drag-over"),
+                    onDrop: (e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("drag-over");
+                      const file = e.dataTransfer.files[0];
+                      if (file) {
+                        const form = new FormData();
+                        form.append("file", file);
+                        setLoading("convert");
+                        fetch("/api/convert", { method: "POST", body: form })
+                          .then((r) => r.json())
+                          .then((d) => {
+                            if (d.error) throw new Error(d.error);
+                            if (!newTitle.trim()) setNewTitle(d.title || "");
+                            setNewContent(d.content || "");
+                          })
+                          .catch((err) => setError(err.message))
+                          .finally(() => setLoading(""));
+                      }
+                    }
+                  },
+                    h("input", {
+                      type: "file",
+                      accept: ".md,.docx,.pdf",
+                      style: { display: "none" },
+                      onChange: (e) => {
+                        const file = e.target.files && e.target.files[0];
+                        if (!file) return;
+                        const form = new FormData();
+                        form.append("file", file);
+                        setLoading("convert");
+                        fetch("/api/convert", { method: "POST", body: form })
+                          .then((r) => r.json())
+                          .then((d) => {
+                            if (d.error) throw new Error(d.error);
+                            if (!newTitle.trim()) setNewTitle(d.title || "");
+                            setNewContent(d.content || "");
+                            e.target.value = "";
+                          })
+                          .catch((err) => setError(err.message))
+                          .finally(() => setLoading(""));
+                      }
+                    }),
+                    loading === "convert"
+                      ? h("span", { className: "file-attach-label" }, "변환 중…")
+                      : h("span", { className: "file-attach-label" },
+                          h("span", { className: "file-attach-icon" }, "📎"),
+                          "파일 첨부  ",
+                          h("span", { className: "file-attach-hint" }, ".md · .docx · .pdf — 클릭하거나 드래그")
+                        )
+                  ),
                   h(RichEditor, {
                     value: newContent,
                     source: draftSource(newCustomer, newTitle),
                     onChange: setNewContent,
                     maxSizeBytes: meta ? meta.assetMaxSizeBytes : undefined,
-                    minHeight: "480px"
+                    minHeight: "420px"
                   }),
                   h("div", { className: "create-actions" },
                     h("button", { type: "button", onClick: () => setShowCreate(false) }, "취소"),

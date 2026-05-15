@@ -1012,6 +1012,73 @@ def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
     return f"{generated}\n\n---\n참고 문서:\n{sources}"
 
 
+def _convert_docx_to_md(content: bytes) -> str:
+    try:
+        import io as _io
+        from docx import Document
+        from docx.oxml.ns import qn as _qn
+    except ImportError:
+        return "# 변환 오류\n\n`python-docx` 패키지가 필요합니다. `pip install python-docx`"
+
+    doc = Document(_io.BytesIO(content))
+    lines: list[str] = []
+
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        style = para.style.name.lower() if para.style else ""
+        if not text:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+        if "heading 1" in style:
+            lines.append(f"# {text}")
+        elif "heading 2" in style:
+            lines.append(f"## {text}")
+        elif "heading 3" in style:
+            lines.append(f"### {text}")
+        elif "list" in style or "bullet" in style:
+            lines.append(f"- {text}")
+        else:
+            lines.append(text)
+
+    for table in doc.tables:
+        if not table.rows:
+            continue
+        headers = [cell.text.strip().replace("|", "\\|") for cell in table.rows[0].cells]
+        lines.append("")
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+        for row in table.rows[1:]:
+            cells = [cell.text.strip().replace("|", "\\|") for cell in row.cells]
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def _convert_pdf_to_md(content: bytes) -> str:
+    try:
+        import io as _io
+        from pypdf import PdfReader
+    except ImportError:
+        return "# 변환 오류\n\n`pypdf` 패키지가 필요합니다. `pip install pypdf`"
+
+    try:
+        reader = PdfReader(_io.BytesIO(content))
+        if not reader.pages:
+            return "# 내용 없음\n\n페이지가 없습니다."
+        pages: list[str] = []
+        for i, page in enumerate(reader.pages):
+            text = (page.extract_text() or "").strip()
+            if text:
+                pages.append(f"## 페이지 {i + 1}\n\n{text}")
+        if not pages:
+            return "# 텍스트 추출 불가\n\n스캔된 이미지 PDF는 지원하지 않습니다."
+        return "\n\n".join(pages)
+    except Exception as exc:
+        return f"# 변환 오류\n\n{exc}"
+
+
 def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str, model: str) -> str:
     base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
     model = (model or "gpt-4o-mini").strip()
@@ -1743,6 +1810,28 @@ def create_api_app():
             path.write_bytes(content)
         url = "/api/asset?source=" + urllib.parse.quote(source) + "&path=" + urllib.parse.quote(markdown_rel)
         return {"path": markdown_rel, "url": url}
+
+    @api_app.post("/api/convert")
+    async def api_convert(request: Request):
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "filename"):
+            return _json_response({"error": "file is required"}, status_code=400)
+        filename = str(upload.filename or "")
+        ext = Path(filename).suffix.lower()
+        if ext not in {".md", ".docx", ".pdf"}:
+            return _json_response({"error": ".md, .docx, .pdf 파일만 지원합니다."}, status_code=400)
+        raw = await upload.read()
+        if not raw:
+            return _json_response({"error": "파일이 비어 있습니다."}, status_code=400)
+        if ext == ".md":
+            content = raw.decode("utf-8", errors="replace")
+        elif ext == ".docx":
+            content = _convert_docx_to_md(raw)
+        else:
+            content = _convert_pdf_to_md(raw)
+        title = Path(filename).stem
+        return {"title": title, "content": content}
 
     @api_app.delete("/api/asset")
     async def api_delete_asset(request: Request):
