@@ -929,6 +929,16 @@ const h = React.createElement;
                 h("button", {
                   type: "button",
                   className: "icon-button explorer-action",
+                  title: "홈 (선택 해제)",
+                  onClick: () => {
+                    setDoc(null); setSelected(""); setDraft(""); setEditMode(false);
+                    setShowCreate(false); setShowRenameDoc(false); setTrashOpen(false);
+                    setError("");
+                  }
+                }, "⌂"),
+                h("button", {
+                  type: "button",
+                  className: "icon-button explorer-action",
                   title: "새 문서",
                   onClick: startCreate
                 }, h(Icon, { name: "file-plus" })),
