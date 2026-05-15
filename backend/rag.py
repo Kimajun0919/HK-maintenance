@@ -1,0 +1,451 @@
+﻿from __future__ import annotations
+
+import math
+import re
+import time
+from collections import Counter
+from pathlib import Path
+
+from config import DOCS_DIR, MAX_NEW_TOKENS, MODEL_NAME, USE_LLM
+from models import Chunk
+from storage import _doc_records, _init_supabase_storage
+
+QUERY_ALIASES = {
+    "시도지사": "시도지사협의회 대한시도지사협회",
+    "대한시도지사": "시도지사협의회 대한시도지사협회",
+    "차세대": "KIAPS_차세대 KIAPS",
+    "대한항공": "대한항공씨앤디서비스 KCND",
+    "안과": "안과의사회 대한안과의사회 KIOS",
+    "고혈압": "고혈압학회 대한고혈압학회",
+    "순환자원": "한국순환자원 한국순환자원유통지원센터 KORA",
+    "성의교정": "성의교정_공동연구지원센터 성의교정_카톨릭대학교",
+}
+
+INTENT_EXPANSIONS = {
+    "접속정보": "접속 정보 계정 로그인 관리자 URL VPN FTP 서버 클라우드 id pw password host 경로",
+    "접속 정보": "접속 정보 계정 로그인 관리자 URL VPN FTP 서버 클라우드 id pw password host 경로",
+    "계정": "계정 로그인 id pw password 관리자",
+    "서버": "서버 host 경로 FTP VPN",
+    "경로": "경로 디렉토리 폴더 서버 파일",
+    "보고서": "보고서 월간 내역서 점검대장 발송",
+}
+
+
+def clean_text(text: str) -> str:
+    text = text.replace("\ufeff", "")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def split_markdown(path: Path, text: str, max_chars: int = 1800, overlap: int = 250) -> list[Chunk]:
+    rel = path.relative_to(DOCS_DIR).as_posix()
+    title_match = re.search(r"^#\s+(.+)$", text, flags=re.M)
+    title = title_match.group(1).strip() if title_match else path.stem
+
+    sections = re.split(r"(?=^#{1,3}\s+)", text, flags=re.M)
+    chunks: list[Chunk] = []
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+        section_title_match = re.search(r"^#{1,3}\s+(.+)$", section, flags=re.M)
+        section_title = section_title_match.group(1).strip() if section_title_match else title
+        if any(
+            skip in section_title
+            for skip in (
+                "문서 개요",
+                "핵심 요약",
+                "상세 내용",
+                "작업 절차",
+                "주의사항",
+                "오류 및 대응 방법",
+                "확인 필요 사항",
+                "원본 보존 내용",
+                "기존 정리본 문서",
+                "공통 작업 가능 여부",
+            )
+        ):
+            continue
+
+        start = 0
+        while start < len(section):
+            end = min(start + max_chars, len(section))
+            part = section[start:end].strip()
+            if len(part) >= 80:
+                chunks.append(Chunk(text=part, source=rel, title=section_title))
+            if end == len(section):
+                break
+            start = max(0, end - overlap)
+    return chunks
+
+
+def load_chunks() -> list[Chunk]:
+    chunks: list[Chunk] = []
+    for record in _doc_records():
+        path = DOCS_DIR / record.source
+        text = clean_text(record.content)
+        if text:
+            chunks.extend(split_markdown(path, text))
+    return chunks
+
+
+class Retriever:
+    def __init__(self, chunks: list[Chunk]):
+        self.chunks = chunks
+        self.vectors = [self._vector(f"{c.title}\n{c.source}\n{c.text}") for c in chunks]
+        self.norms = [self._norm(v) for v in self.vectors]
+
+    @staticmethod
+    def _ngrams(text: str) -> list[str]:
+        compact = re.sub(r"\s+", " ", text.lower())
+        grams: list[str] = []
+        for n in (2, 3, 4):
+            grams.extend(compact[i : i + n] for i in range(max(0, len(compact) - n + 1)))
+        tokens = re.findall(r"[가-힣A-Za-z0-9_./:@!+-]{2,}", text.lower())
+        grams.extend(tokens)
+        return grams
+
+    @staticmethod
+    def _expand_query(query: str) -> str:
+        expanded = [query]
+        compact_query = query.replace(" ", "")
+        for key, value in QUERY_ALIASES.items():
+            if key.replace(" ", "") in compact_query:
+                expanded.append(value)
+        for key, value in INTENT_EXPANSIONS.items():
+            if key.replace(" ", "") in compact_query:
+                expanded.append(value)
+        return " ".join(expanded)
+
+    @classmethod
+    def _vector(cls, text: str) -> Counter[str]:
+        return Counter(cls._ngrams(text))
+
+    @staticmethod
+    def _norm(vector: Counter[str]) -> float:
+        return math.sqrt(sum(value * value for value in vector.values()))
+
+    @staticmethod
+    def _cosine(left: Counter[str], left_norm: float, right: Counter[str], right_norm: float) -> float:
+        if not left_norm or not right_norm:
+            return 0.0
+        if len(left) > len(right):
+            left, right = right, left
+        dot = sum(value * right.get(key, 0) for key, value in left.items())
+        return dot / (left_norm * right_norm)
+
+    def search(self, query: str, top_k: int = 5) -> list[tuple[Chunk, float]]:
+        if not self.chunks:
+            return []
+        expanded_query = self._expand_query(query)
+        qv = self._vector(expanded_query)
+        qn = self._norm(qv)
+        query_terms = set(re.findall(r"[가-힣A-Za-z0-9_]{2,}", expanded_query.lower()))
+        compact_query = expanded_query.lower().replace(" ", "")
+        wants_report = any(term in compact_query for term in ("보고서", "월간", "내역서", "점검대장"))
+        wants_access = any(term in compact_query for term in ("접속정보", "접속", "계정", "로그인", "서버", "경로"))
+        scored = []
+        for idx, (vector, norm) in enumerate(zip(self.vectors, self.norms)):
+            score = self._cosine(qv, qn, vector, norm)
+            chunk = self.chunks[idx]
+            source_title = f"{chunk.source} {chunk.title}".lower()
+            folder = chunk.source.split("/", 1)[0].lower()
+            folder_boost = 0.55 if folder and folder in compact_query else 0.0
+            exact_boost = sum(0.04 for term in query_terms if term in source_title)
+            exact_boost += folder_boost
+            if folder == "공통자료" and not wants_report:
+                exact_boost -= 0.35
+            if wants_access:
+                access_text = f"{chunk.title}\n{chunk.text}".lower()
+                access_hits = sum(
+                    1
+                    for term in ("접속", "계정", "로그인", "관리자", "vpn", "ftp", "id", "pw", "password", "host", "클라우드", "경로")
+                    if term in access_text
+                )
+                exact_boost += min(access_hits * 0.035, 0.28)
+            scored.append((idx, score + exact_boost))
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return [(self.chunks[idx], score) for idx, score in scored[:top_k] if score > 0]
+
+
+class LocalLLM:
+    def __init__(self):
+        self.enabled = False
+        self.error = ""
+        self.tokenizer = None
+        self.model = None
+        if not USE_LLM:
+            self.error = "USE_LLM=0"
+            return
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                MODEL_NAME,
+                torch_dtype=torch.float32,
+                device_map="cpu",
+                low_cpu_mem_usage=True,
+            )
+            self.model.eval()
+            self.enabled = True
+        except Exception as exc:
+            self.error = str(exc)
+
+    def generate(self, prompt: str) -> str:
+        if not self.enabled or self.model is None or self.tokenizer is None:
+            return ""
+
+        import torch
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "너는 홈페이지코리아 유지보수 문서 RAG 챗봇이다. "
+                    "반드시 제공된 근거 안에서만 답하고, 모르면 확인 필요라고 말한다. "
+                    "계정, 경로, 서버, 주의사항은 임의로 바꾸지 않는다."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+        if hasattr(self.tokenizer, "apply_chat_template"):
+            text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        else:
+            text = f"System: {messages[0]['content']}\nUser: {prompt}\nAssistant:"
+
+        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=4096)
+        with torch.no_grad():
+            output = self.model.generate(
+                **inputs,
+                max_new_tokens=MAX_NEW_TOKENS,
+                do_sample=False,
+                temperature=None,
+                top_p=None,
+                repetition_penalty=1.08,
+                pad_token_id=self.tokenizer.eos_token_id,
+            )
+        generated = output[0][inputs["input_ids"].shape[-1] :]
+        return self.tokenizer.decode(generated, skip_special_tokens=True).strip()
+
+
+llm_instance: LocalLLM | None = None
+
+
+def get_llm() -> LocalLLM:
+    global llm_instance
+    if llm_instance is None:
+        llm_instance = LocalLLM()
+    return llm_instance
+
+
+def build_context(results: list[tuple[Chunk, float]], max_chars: int = 5200) -> str:
+    parts: list[str] = []
+    used = 0
+    for idx, (chunk, score) in enumerate(results, 1):
+        item = (
+            f"[근거 {idx}] score={score:.3f}\n"
+            f"파일: {chunk.source}\n"
+            f"섹션: {chunk.title}\n"
+            f"{chunk.text}\n"
+        )
+        if used + len(item) > max_chars:
+            break
+        parts.append(item)
+        used += len(item)
+    return "\n---\n".join(parts)
+
+
+def source_based_answer(query: str, results: list[tuple[Chunk, float]]) -> str:
+    if not results:
+        return "관련 문서를 찾지 못했습니다. 고객사명이나 기능명을 더 구체적으로 입력해 주세요."
+
+    best_source = results[0][0].source
+    primary = []
+    seen_chunk_text: set[str] = set()
+    seen_titles: set[str] = set()
+    for chunk, score in results:
+        if chunk.source != best_source:
+            continue
+        if is_noise_title_for_answer(query, chunk.title):
+            continue
+        if chunk.title in seen_titles:
+            continue
+        seen_titles.add(chunk.title)
+        key = re.sub(r"\s+", " ", chunk.text[:500])
+        if key in seen_chunk_text:
+            continue
+        seen_chunk_text.add(key)
+        primary.append((chunk, score))
+    if not primary:
+        primary = [(chunk, score) for chunk, score in results[:2] if not is_noise_title_for_answer(query, chunk.title)]
+    if not primary:
+        primary = results[:1]
+
+    lines = [
+        "## 검색 기반 답변",
+        "",
+        f"질문과 가장 관련도가 높은 문서는 `{best_source}`입니다.",
+        "",
+        "### 핵심 근거",
+    ]
+    for idx, (chunk, score) in enumerate(primary[:3], 1):
+        lines.append(f"{idx}. `{chunk.title}`")
+        bullets = extract_readable_bullets(chunk.text)
+        for bullet in bullets[:10]:
+            lines.append(f"   - {bullet}")
+
+    lines.extend(["", "### 참고 문서"])
+    seen: set[str] = set()
+    for chunk, score in results:
+        if is_noise_title_for_answer(query, chunk.title):
+            continue
+        key = f"{chunk.source}|{chunk.title}"
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}")
+    return "\n".join(lines)
+
+
+def is_noise_title_for_answer(query: str, title: str) -> bool:
+    compact_query = query.replace(" ", "")
+    title_compact = title.replace(" ", "")
+    noise_titles = (
+        "문서개요",
+        "핵심요약",
+        "상세내용",
+        "작업절차",
+        "주의사항",
+        "오류및대응방법",
+        "관련이미지",
+        "원본보존내용",
+        "확인필요사항",
+        "기존정리본문서",
+        "HK매뉴얼에서확인된고객사별정보",
+    )
+    if any(noise in title_compact for noise in noise_titles):
+        return True
+    if "보고서" in title_compact and not any(term in compact_query for term in ("보고서", "월간", "내역", "점검")):
+        return True
+    return False
+
+
+def extract_readable_bullets(text: str) -> list[str]:
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.M)
+    text = text.replace("아래 내용은 원본 md 문서의 본문 전체입니다.", "")
+    text = text.replace("내용 누락 방지를 위해 원문 표현, 계정 정보, 경로, URL, 메모를 삭제하지 않고 보존했습니다.", "")
+
+    candidates: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        line = re.sub(r"^[-*]\s+", "", line)
+        line = re.sub(r"^\d+\.\s+", "", line)
+        if line.startswith("|") and line.endswith("|"):
+            continue
+        if line in {"```", "````markdown", "````"}:
+            continue
+        if len(line) > 220:
+            parts = re.split(
+                r"\s{2,}|(?<=\))\s+|(?<=!)\s+|(?=https?://)|(?=\b[a-zA-Z0-9_.-]{3,}\s+[A-Za-z0-9!@#$%^&*()_+=~.-]{4,})",
+                line,
+            )
+            candidates.extend(part.strip() for part in parts if part.strip())
+        else:
+            candidates.append(line)
+
+    important: list[str] = []
+    keywords = [
+        "http", "https", "id", "pw", "비밀번호", "계정", "인증", "접속", "경로",
+        "서버", "관리자", "주의", "적용", "메인", "이미지", "inc", "ftp", "vpn",
+    ]
+    for line in candidates:
+        lower = line.lower()
+        if any(keyword in lower for keyword in keywords) or re.search(r"[/\\][\w가-힣./\\_-]+", line):
+            important.append(line)
+    for line in candidates:
+        if line not in important:
+            important.append(line)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for line in important:
+        normalized = re.sub(r"\s+", " ", line).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
+_init_supabase_storage()
+chunks = load_chunks()
+retriever = Retriever(chunks)
+
+
+def refresh_index() -> None:
+    global chunks, retriever
+    chunks = load_chunks()
+    retriever = Retriever(chunks)
+
+
+def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
+    query = query.strip()
+    if not query:
+        return [], ""
+
+    results = retriever.search(query, top_k=top_k)
+    context = build_context(results)
+    return results, context
+
+
+def immediate_answer(query: str, top_k: int) -> str:
+    query = query.strip()
+    if not query:
+        return "질문을 입력해 주세요."
+
+    results, context = retrieve(query, top_k)
+    if not context:
+        return "관련 문서를 찾지 못했습니다. 고객사명, 오류명, 서버/계정/작업명을 포함해 다시 질문해 주세요."
+
+    return source_based_answer(query, results)
+
+
+def llm_answer(query: str, top_k: int) -> str:
+    results, context = retrieve(query, top_k)
+    if not context:
+        return "관련 문서를 찾지 못했습니다. 고객사명, 오류명, 서버/계정/작업명을 포함해 다시 질문해 주세요."
+
+    prompt = f"""질문:
+{query}
+
+문서 근거:
+{context}
+
+답변 조건:
+- 근거에 있는 내용만 사용
+- 고객사별 작업 절차, 계정, 서버, 경로, 주의사항은 원문 그대로 유지
+- 불확실하면 "확인 필요"라고 표시
+- 마지막에 참고한 파일명을 bullet로 표시
+"""
+    llm = get_llm()
+    generated = llm.generate(prompt)
+    if not generated:
+        generated = source_based_answer(query, results)
+
+    sources = "\n".join(
+        f"- `{chunk.source}` / {chunk.title} / score={score:.3f}"
+        for chunk, score in results
+    )
+    return f"{generated}\n\n---\n참고 문서:\n{sources}"
+
+
+def answer(query: str, top_k: int, history: list[dict] | None = None) -> str:
+    if USE_LLM:
+        return llm_answer(query, top_k)
+    return immediate_answer(query, top_k)
+
+
