@@ -17,6 +17,21 @@ const h = React.createElement;
             h("path", { d: "M9 13h6" })
           );
         }
+        if (name === "sort-asc") {
+          return h("svg", common,
+            h("line", { x1: 3, y1: 6, x2: 13, y2: 6 }),
+            h("line", { x1: 3, y1: 12, x2: 10, y2: 12 }),
+            h("line", { x1: 3, y1: 18, x2: 7, y2: 18 }),
+            h("polyline", { points: "18 4 22 8 18 8" }),
+            h("line", { x1: 22, y1: 8, x2: 22, y2: 20 })
+          );
+        }
+        if (name === "sort-latest") {
+          return h("svg", common,
+            h("circle", { cx: 12, cy: 12, r: 10 }),
+            h("polyline", { points: "12 6 12 12 16 14" })
+          );
+        }
         return null;
       };
 
@@ -232,7 +247,7 @@ const h = React.createElement;
         const [docs, setDocs] = React.useState([]);
         const [folders, setFolders] = React.useState([]);
         const [docFilter, setDocFilter] = React.useState("");
-        const [docSort, setDocSort] = React.useState(() => localStorage.getItem("hk.docSort") || "folder");
+        const [docSort, setDocSort] = React.useState(() => localStorage.getItem("hk.docSort") || "asc");
         const [openFolders, setOpenFolders] = React.useState({});
         const [selected, setSelected] = React.useState("");
         const [doc, setDoc] = React.useState(null);
@@ -366,21 +381,25 @@ const h = React.createElement;
             groups.get(key).items.push(item);
           });
           const compareText = (a, b) => a.localeCompare(b, "ko");
+          const compareLatest = (a, b) => {
+            const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+            const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+            return tb - ta || compareText(a.title, b.title);
+          };
           const entries = Array.from(groups.entries()).filter(([folder, group]) => {
             if (!q) return true;
             return folder.toLowerCase().includes(q) || group.items.length > 0;
           });
           entries.forEach(([, group]) => {
-            group.items.sort((a, b) => {
-              if (docSort === "title-desc") return compareText(b.title, a.title);
-              if (docSort === "path-asc") return compareText(a.source, b.source);
-              if (docSort === "path-desc") return compareText(b.source, a.source);
-              return compareText(a.title, b.title);
-            });
+            if (docSort === "latest") group.items.sort(compareLatest);
+            else group.items.sort((a, b) => compareText(a.title, b.title));
           });
           entries.sort((a, b) => {
-            if (docSort === "folder-desc") return compareText(b[0], a[0]);
-            if (docSort === "custom") return (a[1].folder.sortOrder ?? 9999) - (b[1].folder.sortOrder ?? 9999) || compareText(a[0], b[0]);
+            if (docSort === "latest") {
+              const ta = Math.max(...a[1].items.map((i) => i.updatedAt ? new Date(i.updatedAt).getTime() : 0), 0);
+              const tb = Math.max(...b[1].items.map((i) => i.updatedAt ? new Date(i.updatedAt).getTime() : 0), 0);
+              return tb - ta || compareText(a[0], b[0]);
+            }
             return compareText(a[0], b[0]);
           });
           return entries.map(([folder, group]) => [folder, group.items, group.folder]);
@@ -912,19 +931,6 @@ const h = React.createElement;
                 onChange: (event) => setDocFilter(event.target.value),
                 placeholder: "자료 목록 필터"
               }),
-              h("select", {
-                value: docSort,
-                onChange: (event) => setDocSort(event.target.value),
-                style: { marginTop: "8px" }
-              },
-                h("option", { value: "folder" }, "폴더명 오름차순"),
-                h("option", { value: "folder-desc" }, "폴더명 내림차순"),
-                h("option", { value: "title-asc" }, "파일명 오름차순"),
-                h("option", { value: "title-desc" }, "파일명 내림차순"),
-                h("option", { value: "path-asc" }, "경로 오름차순"),
-                h("option", { value: "path-desc" }, "경로 내림차순"),
-                h("option", { value: "custom" }, "폴더 사용자 순서")
-              ),
               h("div", { className: "explorer-action-row" },
                 h("button", {
                   type: "button",
@@ -957,7 +963,20 @@ const h = React.createElement;
                   }, "🗑"),
                   trashItems && (trashItems.docs.length + trashItems.assets.length) > 0 && h("span", { className: "trash-badge" },
                     trashItems.docs.length + trashItems.assets.length
-                  )
+                  )),
+                h("div", { className: "sort-buttons" },
+                  h("button", {
+                    type: "button",
+                    className: "icon-button explorer-action" + (docSort === "asc" ? " active" : ""),
+                    title: "가나다순",
+                    onClick: () => setDocSort("asc")
+                  }, h(Icon, { name: "sort-asc" })),
+                  h("button", {
+                    type: "button",
+                    className: "icon-button explorer-action" + (docSort === "latest" ? " active" : ""),
+                    title: "최신순",
+                    onClick: () => setDocSort("latest")
+                  }, h(Icon, { name: "sort-latest" }))
                 )
               ),
               showFolderCreate && h("form", { className: "inline-form", onSubmit: createFolder },

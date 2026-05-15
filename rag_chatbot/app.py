@@ -83,6 +83,7 @@ class DocRecord:
     title: str
     customer: str
     content: str
+    updated_at: str | None = None
 
 
 @dataclass
@@ -253,8 +254,8 @@ def _init_supabase_storage() -> None:
 def _db_doc_records() -> list[DocRecord]:
     with _db_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"select source, title, customer, content from {SUPABASE_DOCS_TABLE} where deleted_at is null order by source")
-            return [DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3]) for row in cur.fetchall()]
+            cur.execute(f"select source, title, customer, content, updated_at from {SUPABASE_DOCS_TABLE} where deleted_at is null order by source")
+            return [DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3], updated_at=row[4].isoformat() if row[4] else None) for row in cur.fetchall()]
 
 
 def _db_asset_count() -> int:
@@ -1330,7 +1331,7 @@ def docs_index() -> list[dict[str, str]]:
         name = Path(record.source).name
         if name in {"SIMPLIFY_CHANGELOG.md", "SIMPLIFY_VALIDATION_REPORT.md"}:
             continue
-        items.append({"source": record.source, "title": record.title, "customer": record.customer})
+        items.append({"source": record.source, "title": record.title, "customer": record.customer, "updatedAt": record.updated_at})
     return items
 
 

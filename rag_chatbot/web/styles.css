@@ -237,8 +237,14 @@
       }
       .explorer-action-row {
         display: flex;
+        align-items: center;
         gap: 4px;
         margin-top: 6px;
+      }
+      .sort-buttons {
+        display: flex;
+        gap: 4px;
+        margin-left: auto;
       }
       .folder-list {
         flex: 1;
