@@ -78,6 +78,8 @@ export function App() {
         const [fmDragOver, setFmDragOver] = React.useState("");
         const [fmSelectedFolder, setFmSelectedFolder] = React.useState(null);
         const [fmViewMode, setFmViewMode] = React.useState("grid");
+        const [fmSelectedFolders, setFmSelectedFolders] = React.useState(() => new Set());
+        const [fmSelectedFiles, setFmSelectedFiles] = React.useState(() => new Set());
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -574,6 +576,63 @@ export function App() {
           setFmDragFrom("");
         };
 
+        const toggleFmFolderSelection = (name) => {
+          setFmSelectedFolders((prev) => {
+            const next = new Set(prev);
+            if (next.has(name)) next.delete(name); else next.add(name);
+            return next;
+          });
+        };
+
+        const toggleFmFileSelection = (source) => {
+          setFmSelectedFiles((prev) => {
+            const next = new Set(prev);
+            if (next.has(source)) next.delete(source); else next.add(source);
+            return next;
+          });
+        };
+
+        const clearFmSelection = () => {
+          setFmSelectedFolders(new Set());
+          setFmSelectedFiles(new Set());
+        };
+
+        const downloadSelection = () => {
+          const foldersToDownload = fmSelectedFolder ? [] : [...fmSelectedFolders];
+          const filesToDownload = fmSelectedFolder ? [...fmSelectedFiles] : [];
+          if (foldersToDownload.length === 0 && filesToDownload.length === 0) {
+            setError("다운로드할 폴더 또는 파일을 선택하세요.");
+            return;
+          }
+          setLoading("download");
+          fetch("/api/download", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ folders: foldersToDownload, files: filesToDownload }),
+          })
+            .then(async (res) => {
+              if (!res.ok) {
+                let data = {};
+                try { data = await res.json(); } catch {}
+                throw new Error(data.error || res.statusText);
+              }
+              const blob = await res.blob();
+              const disposition = res.headers.get("content-disposition") || "";
+              const match = disposition.match(/filename\*=UTF-8''([^;]+)/);
+              const filename = match ? decodeURIComponent(match[1]) : "hk-maintenance-download.zip";
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = filename;
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              URL.revokeObjectURL(url);
+            })
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(""));
+        };
+
         const runSearch = (event) => {
           event && event.preventDefault();
           const term = searchQuery.trim();
@@ -848,14 +907,14 @@ export function App() {
           style: appStyle,
           onClick: () => explorerMenu && setExplorerMenu(null)
         },
-          folderManagerOpen && h("div", { className: "modal-backdrop", onMouseDown: () => { setFolderManagerOpen(false); setFmRenaming(""); setFmCreating(false); setFmSelectedFolder(null); } },
+          folderManagerOpen && h("div", { className: "modal-backdrop", onMouseDown: () => { setFolderManagerOpen(false); setFmRenaming(""); setFmCreating(false); setFmSelectedFolder(null); clearFmSelection(); } },
             h("section", { className: "fm-modal", onMouseDown: (e) => e.stopPropagation() },
 
               h("header", { className: "fm-header" },
                 h("div", { className: "fm-title" },
                   fmSelectedFolder
                     ? [
-                        h("button", { key: "back", type: "button", className: "fm-back-btn", onClick: () => { setFmSelectedFolder(null); setFmRenaming(""); } }, "←"),
+                        h("button", { key: "back", type: "button", className: "fm-back-btn", onClick: () => { setFmSelectedFolder(null); setFmRenaming(""); setFmSelectedFiles(new Set()); } }, "←"),
                         h(Icon, { key: "icon", name: "folder" }),
                         h("span", { key: "slash", className: "fm-breadcrumb-sep" }, "/"),
                         h("strong", { key: "name" }, fmSelectedFolder)
@@ -866,7 +925,7 @@ export function App() {
                         h("span", { key: "count", className: "fm-subtitle" }, `${folders.length}개`)
                       ]
                 ),
-                h("button", { type: "button", className: "icon-button", onClick: () => { setFolderManagerOpen(false); setFmSelectedFolder(null); } }, "×")
+                h("button", { type: "button", className: "icon-button", onClick: () => { setFolderManagerOpen(false); setFmSelectedFolder(null); clearFmSelection(); } }, "×")
               ),
 
               h("div", { className: "fm-toolbar" },
@@ -874,10 +933,14 @@ export function App() {
                   fmSelectedFolder
                     ? [
                         h("button", { key: "newfile", type: "button", className: "fm-new-btn", onClick: () => { setFolderManagerOpen(false); setFmSelectedFolder(null); startCreate(); setNewCustomer(fmSelectedFolder); } }, "+ 새 파일"),
+                        h("button", { key: "download", type: "button", className: "fm-new-btn", onClick: downloadSelection, disabled: fmSelectedFiles.size === 0 || loading === "download" }, loading === "download" ? "다운로드 중" : `선택 다운로드 (${fmSelectedFiles.size})`),
+                        fmSelectedFiles.size > 0 && h("button", { key: "clear", type: "button", className: "fm-new-btn", onClick: clearFmSelection }, "선택 해제"),
                         h("span", { key: "count", className: "fm-toolbar-count" }, `파일 ${(groupedDocs.find(([f]) => f === fmSelectedFolder) || [null, []])[1].length}개`)
                       ]
                     : [
                         h("button", { key: "newfolder", type: "button", className: "fm-new-btn", onClick: () => { setFmCreating(true); setFmNewName(""); setFmRenaming(""); } }, "+ 새 폴더"),
+                        h("button", { key: "download", type: "button", className: "fm-new-btn", onClick: downloadSelection, disabled: fmSelectedFolders.size === 0 || loading === "download" }, loading === "download" ? "다운로드 중" : `선택 다운로드 (${fmSelectedFolders.size})`),
+                        fmSelectedFolders.size > 0 && h("button", { key: "clear", type: "button", className: "fm-new-btn", onClick: clearFmSelection }, "선택 해제"),
                         h("span", { key: "count", className: "fm-toolbar-count" }, `폴더 ${folders.length}개`)
                       ]
                 ),
@@ -910,7 +973,14 @@ export function App() {
                   if (fmViewMode === "list")
                     return h("div", { className: "fm-list" },
                       fileItems.map((item) =>
-                        h("div", { key: item.source, className: "fm-list-row", onClick: () => { openDoc(item.source); setFolderManagerOpen(false); setFmSelectedFolder(null); } },
+                        h("div", { key: item.source, className: "fm-list-row" + (fmSelectedFiles.has(item.source) ? " fm-selected" : ""), onClick: () => { openDoc(item.source); setFolderManagerOpen(false); setFmSelectedFolder(null); clearFmSelection(); } },
+                          h("input", {
+                            type: "checkbox",
+                            className: "fm-select",
+                            checked: fmSelectedFiles.has(item.source),
+                            onChange: () => toggleFmFileSelection(item.source),
+                            onClick: (e) => e.stopPropagation()
+                          }),
                           h("div", { className: "fm-list-icon" }, fileSvg(18)),
                           h("span", { className: "fm-list-name", title: item.title }, item.title),
                           h("span", { className: "fm-list-meta" }, item.source),
@@ -924,7 +994,14 @@ export function App() {
                     );
                   return h("div", { className: "fm-body" },
                     fileItems.map((item) =>
-                      h("div", { key: item.source, className: "fm-card fm-file-card", onClick: () => { openDoc(item.source); setFolderManagerOpen(false); setFmSelectedFolder(null); } },
+                      h("div", { key: item.source, className: "fm-card fm-file-card" + (fmSelectedFiles.has(item.source) ? " fm-selected" : ""), onClick: () => { openDoc(item.source); setFolderManagerOpen(false); setFmSelectedFolder(null); clearFmSelection(); } },
+                        h("input", {
+                          type: "checkbox",
+                          className: "fm-select fm-card-select",
+                          checked: fmSelectedFiles.has(item.source),
+                          onChange: () => toggleFmFileSelection(item.source),
+                          onClick: (e) => e.stopPropagation()
+                        }),
                         h("div", { className: "fm-card-icon" }, fileSvg(44)),
                         h("span", { className: "fm-card-name", title: item.title }, item.title),
                         item.updatedAt && h("span", { className: "fm-card-count" }, new Date(item.updatedAt).toLocaleDateString("ko")),
@@ -955,7 +1032,14 @@ export function App() {
                   );
 
                   if (fmViewMode === "list")
-                    return h("div", { key: folderName, className: "fm-list-row" + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : ""), onClick: () => { if (!isRenaming && !fmDragFrom) setFmSelectedFolder(folderName); }, ...dragProps },
+                    return h("div", { key: folderName, className: "fm-list-row" + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : "") + (fmSelectedFolders.has(folderName) ? " fm-selected" : ""), onClick: () => { if (!isRenaming && !fmDragFrom) { setFmSelectedFolder(folderName); setFmSelectedFiles(new Set()); } }, ...dragProps },
+                      h("input", {
+                        type: "checkbox",
+                        className: "fm-select",
+                        checked: fmSelectedFolders.has(folderName),
+                        onChange: () => toggleFmFolderSelection(folderName),
+                        onClick: (e) => e.stopPropagation()
+                      }),
                       dragHandle(folderName),
                       h("div", { className: "fm-list-icon" }, folderSvg(18, isPinned)),
                       isPinned && h("span", { style: { fontSize: "11px" } }, "📌"),
@@ -964,7 +1048,14 @@ export function App() {
                       actions
                     );
 
-                  return h("div", { key: folderName, className: "fm-card" + (isPinned ? " fm-pinned" : "") + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : ""), onClick: () => { if (!isRenaming && !fmDragFrom) setFmSelectedFolder(folderName); }, ...dragProps },
+                  return h("div", { key: folderName, className: "fm-card" + (isPinned ? " fm-pinned" : "") + (fmDragOver === folderName ? " fm-drag-over" : "") + (fmDragFrom === folderName ? " fm-dragging" : "") + (fmSelectedFolders.has(folderName) ? " fm-selected" : ""), onClick: () => { if (!isRenaming && !fmDragFrom) { setFmSelectedFolder(folderName); setFmSelectedFiles(new Set()); } }, ...dragProps },
+                    h("input", {
+                      type: "checkbox",
+                      className: "fm-select fm-card-select",
+                      checked: fmSelectedFolders.has(folderName),
+                      onChange: () => toggleFmFolderSelection(folderName),
+                      onClick: (e) => e.stopPropagation()
+                    }),
                     h("div", { className: "fm-card-top" }, dragHandle(folderName)),
                     h("div", { className: "fm-card-icon" }, folderSvg(48, isPinned), isPinned && h("span", { className: "fm-pin-badge" }, "📌")),
                     isRenaming ? renameInput : h("span", { className: "fm-card-name", title: folderName, onDoubleClick: (e) => { e.stopPropagation(); setFmRenaming(folderName); setFmRenameValue(folderName); } }, folderName),

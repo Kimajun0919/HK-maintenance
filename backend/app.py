@@ -2,12 +2,14 @@
 
 import os
 import re
+import io
 import json
 import mimetypes
 import time
 import urllib.parse
 import urllib.request
 import urllib.error
+import zipfile
 from collections import Counter
 from pathlib import Path, PurePosixPath
 
@@ -455,6 +457,22 @@ def _asset_target_from_source(source: str, filename: str) -> tuple[str, str] | N
     return asset_rel, markdown_rel
 
 
+def _doc_asset_refs(source: str, content: str) -> set[str]:
+    folder = PurePosixPath(source).parent
+    refs: set[str] = set()
+    for match in re.finditer(r'!\[[^\]]*\]\(([^)]+)\)', content or ""):
+        raw = match.group(1).strip().split()[0].strip('"').strip("'")
+        if not raw or raw.startswith("/") or raw.startswith("data:") or re.match(r"^(https?:)?//", raw, flags=re.I):
+            continue
+        refs.add((folder / PurePosixPath(raw)).as_posix())
+    return refs
+
+
+def _zip_filename(value: str) -> str:
+    name = re.sub(r'[<>:"|?*\x00-\x1f]+', "_", value).strip(" ._")
+    return name or "download"
+
+
 def _safe_posix_parts(value: str) -> tuple[str, ...] | None:
     parts = PurePosixPath(value.replace("\\", "/")).parts
     if not parts or any(part in {"", ".", ".."} for part in parts):
@@ -840,6 +858,76 @@ def create_api_app():
         if asset is None:
             return _json_response({"error": "asset not found"}, status_code=404)
         return FileResponse(asset)
+
+    @api_app.post("/api/download")
+    async def api_download(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+
+        folders = [name for name in (_safe_folder_name(str(item)) for item in payload.get("folders", [])) if name]
+        files = [source for source in (_safe_source_value(str(item)) for item in payload.get("files", [])) if source]
+        if not folders and not files:
+            return _json_response({"error": "download selection is empty"}, status_code=400)
+
+        buffer = io.BytesIO()
+        added: set[str] = set()
+
+        def write_zip(zf: zipfile.ZipFile, name: str, data: bytes) -> None:
+            zip_name = PurePosixPath(name).as_posix().lstrip("/")
+            if not zip_name or zip_name in added:
+                return
+            added.add(zip_name)
+            zf.writestr(zip_name, data)
+
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            if SUPABASE_ENABLED:
+                records = _doc_records()
+                selected_docs = [
+                    record
+                    for record in records
+                    if record.source in files or any(record.source == folder or record.source.startswith(folder + "/") for folder in folders)
+                ]
+                for record in selected_docs:
+                    write_zip(zf, record.source, record.content.encode("utf-8"))
+                asset_paths = set()
+                for folder in folders:
+                    asset_paths.update(_db_asset_paths(folder + "/"))
+                for record in selected_docs:
+                    asset_paths.update(_doc_asset_refs(record.source, record.content))
+                for asset_path in sorted(asset_paths):
+                    asset = _db_asset_record(asset_path)
+                    if asset is not None:
+                        write_zip(zf, asset.path, asset.content)
+            else:
+                for folder in folders:
+                    folder_path = (DOCS_DIR / folder).resolve()
+                    try:
+                        folder_path.relative_to(DOCS_DIR)
+                    except ValueError:
+                        continue
+                    if folder_path.exists() and folder_path.is_dir():
+                        for path in sorted(folder_path.rglob("*")):
+                            if path.is_file():
+                                write_zip(zf, path.relative_to(DOCS_DIR).as_posix(), path.read_bytes())
+                for source in files:
+                    path = _safe_doc_path(source)
+                    if path is not None:
+                        content = path.read_text(encoding="utf-8", errors="replace")
+                        write_zip(zf, path.relative_to(DOCS_DIR).as_posix(), content.encode("utf-8"))
+                        for asset_rel in _doc_asset_refs(source, content):
+                            asset_path = _safe_file_asset_path(asset_rel)
+                            if asset_path is not None:
+                                write_zip(zf, asset_rel, asset_path.read_bytes())
+
+        if not added:
+            return _json_response({"error": "selected files were not found"}, status_code=404)
+
+        label = folders[0] if len(folders) == 1 and not files else "selected"
+        filename = _zip_filename(f"hk-maintenance-{label}.zip")
+        headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(filename)}"}
+        return Response(content=buffer.getvalue(), media_type="application/zip", headers=headers)
 
     @api_app.post("/api/asset")
     async def api_upload_asset(request: Request):
