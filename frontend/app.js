@@ -404,7 +404,6 @@ const h = React.createElement;
         const refreshMeta = () => {
           return api("/api/meta").then((data) => {
             setMeta(data);
-            if (data.claudeDefaultModel) setClaudeModel(data.claudeDefaultModel);
             return data;
           }).catch((err) => setError(err.message));
         };
