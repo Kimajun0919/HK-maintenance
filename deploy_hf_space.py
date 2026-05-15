@@ -64,6 +64,17 @@ def deploy_bundle() -> None:
     if not space_id:
         raise SystemExit("HF_SPACE_ID 환경 변수가 없습니다. 예: username/hk-maintenance-rag")
 
+    supabase_db_url = os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL", "")
+    if supabase_db_url:
+        print(
+            "\n[경고] 로컬에 SUPABASE_DB_URL이 설정되어 있습니다.\n"
+            "HuggingFace Space에도 동일한 값을 시크릿으로 등록하지 않으면\n"
+            "Space는 파일 모드로 동작하여 Supabase에서 삭제한 내용이 반영되지 않습니다.\n"
+            f"  → https://huggingface.co/spaces/{space_id}/settings 에서\n"
+            "     SUPABASE_DB_URL 시크릿을 추가하세요.\n"
+            "     초기 씨딩이 이미 완료된 경우 SUPABASE_SEED_FROM_FILES=0 도 함께 설정하세요.\n"
+        )
+
     from huggingface_hub import HfApi, create_repo
 
     create_repo(

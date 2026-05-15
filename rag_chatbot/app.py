@@ -38,6 +38,7 @@ SUPABASE_SEED_FROM_FILES = os.getenv("SUPABASE_SEED_FROM_FILES", "1") != "0"
 SUPABASE_DOCS_TABLE = os.getenv("SUPABASE_DOCS_TABLE", "maintenance_docs")
 SUPABASE_ASSETS_TABLE = os.getenv("SUPABASE_ASSETS_TABLE", f"{SUPABASE_DOCS_TABLE}_assets")
 SUPABASE_FOLDERS_TABLE = os.getenv("SUPABASE_FOLDERS_TABLE", f"{SUPABASE_DOCS_TABLE}_folders")
+SUPABASE_META_TABLE = f"{SUPABASE_DOCS_TABLE}_meta"
 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SUPABASE_DOCS_TABLE):
     raise ValueError("SUPABASE_DOCS_TABLE must be a simple SQL identifier")
 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SUPABASE_ASSETS_TABLE):
@@ -194,47 +195,51 @@ def _init_supabase_storage() -> None:
                     """
                 )
                 cur.execute(f"create index if not exists {SUPABASE_FOLDERS_TABLE}_sort_order_idx on {SUPABASE_FOLDERS_TABLE} (sort_order, name)")
+                cur.execute(
+                    f"""
+                    create table if not exists {SUPABASE_META_TABLE} (
+                        key text primary key,
+                        value text not null,
+                        created_at timestamptz not null default now()
+                    )
+                    """
+                )
             if SUPABASE_SEED_FROM_FILES:
-                cur.execute(f"select count(*) from {SUPABASE_DOCS_TABLE}")
-                count = cur.fetchone()[0]
-                if count == 0:
-                    rows = [(record.source, record.title, record.customer, record.content) for record in _file_doc_records()]
-                    if rows:
+                cur.execute(f"select 1 from {SUPABASE_META_TABLE} where key = 'seed_done'")
+                if cur.fetchone() is None:
+                    doc_rows = [(r.source, r.title, r.customer, r.content) for r in _file_doc_records()]
+                    if doc_rows:
                         cur.executemany(
                             f"""
                             insert into {SUPABASE_DOCS_TABLE} (source, title, customer, content)
                             values (%s, %s, %s, %s)
                             on conflict (source) do nothing
                             """,
-                            rows,
+                            doc_rows,
                         )
-                folder_rows = [(record.customer,) for record in _file_doc_records() if record.customer]
-                if folder_rows:
-                    cur.executemany(
-                        f"""
-                        insert into {SUPABASE_FOLDERS_TABLE} (name)
-                        values (%s)
-                        on conflict (name) do nothing
-                        """,
-                        folder_rows,
-                    )
-                cur.execute(f"select count(*) from {SUPABASE_ASSETS_TABLE}")
-                asset_count = cur.fetchone()[0]
-                if asset_count == 0:
-                    rows = [(record.path, record.mime_type, record.content, len(record.content)) for record in _file_asset_records()]
-                    if rows:
+                    folder_rows = [(r.customer,) for r in _file_doc_records() if r.customer]
+                    if folder_rows:
+                        cur.executemany(
+                            f"""
+                            insert into {SUPABASE_FOLDERS_TABLE} (name)
+                            values (%s)
+                            on conflict (name) do nothing
+                            """,
+                            folder_rows,
+                        )
+                    asset_rows = [(r.path, r.mime_type, r.content, len(r.content)) for r in _file_asset_records()]
+                    if asset_rows:
                         cur.executemany(
                             f"""
                             insert into {SUPABASE_ASSETS_TABLE} (path, mime_type, content, size_bytes)
                             values (%s, %s, %s, %s)
-                            on conflict (path) do update set
-                                mime_type = excluded.mime_type,
-                                content = excluded.content,
-                                size_bytes = excluded.size_bytes,
-                                updated_at = now()
+                            on conflict (path) do nothing
                             """,
-                            rows,
+                            asset_rows,
                         )
+                    cur.execute(
+                        f"insert into {SUPABASE_META_TABLE} (key, value) values ('seed_done', '1') on conflict (key) do nothing"
+                    )
 
 
 def _db_doc_records() -> list[DocRecord]:
@@ -272,6 +277,12 @@ def _db_asset_record(path: str) -> AssetRecord | None:
             if row is None:
                 return None
             return AssetRecord(path=row[0], mime_type=row[1], content=bytes(row[2]))
+
+
+def _db_delete_asset(path: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where path = %s", (path,))
 
 
 def _db_upsert_asset(record: AssetRecord) -> None:
@@ -1100,6 +1111,20 @@ def _is_system_source(source: str) -> bool:
     }
 
 
+def _safe_file_asset_path(rel_path: str) -> Path | None:
+    """Validate and resolve an asset's relative path within DOCS_DIR (file mode only)."""
+    try:
+        resolved = (DOCS_DIR / rel_path).resolve()
+        resolved.relative_to(DOCS_DIR)
+    except (ValueError, RuntimeError):
+        return None
+    if not resolved.exists() or not resolved.is_file():
+        return None
+    if resolved.suffix.lower() not in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+        return None
+    return resolved
+
+
 def _safe_asset_path(source: str, asset_path: str) -> Path | None:
     doc_path = _safe_doc_path(source)
     if doc_path is None:
@@ -1565,6 +1590,26 @@ def create_api_app():
             path.write_bytes(content)
         url = "/api/asset?source=" + urllib.parse.quote(source) + "&path=" + urllib.parse.quote(markdown_rel)
         return {"path": markdown_rel, "url": url}
+
+    @api_app.delete("/api/asset")
+    async def api_delete_asset(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        path = str(payload.get("path", "")).strip()
+        if not path:
+            return _json_response({"error": "path is required"}, status_code=400)
+        if SUPABASE_ENABLED:
+            if _db_asset_record(path) is None:
+                return _json_response({"error": "asset not found"}, status_code=404)
+            _db_delete_asset(path)
+            return {"ok": True, "path": path}
+        asset_file = _safe_file_asset_path(path)
+        if asset_file is None:
+            return _json_response({"error": "asset not found"}, status_code=404)
+        asset_file.unlink()
+        return {"ok": True, "path": path}
 
     @api_app.get("/api/search")
     def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10)):
