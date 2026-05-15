@@ -455,6 +455,11 @@
         white-space: nowrap;
         font-size: 13px;
       }
+      .pin-mark {
+        font-size: 10px;
+        line-height: 1;
+        flex-shrink: 0;
+      }
       .folder-toggle span {
         color: var(--muted);
         font-size: 12px;

@@ -291,6 +291,9 @@ const h = React.createElement;
         const [folderOrder, setFolderOrder] = React.useState(() => {
           try { return JSON.parse(localStorage.getItem("hk.folderOrder") || "null") || null; } catch { return null; }
         });
+        const [pinnedFolders, setPinnedFolders] = React.useState(() => {
+          try { return new Set(JSON.parse(localStorage.getItem("hk.pinnedFolders") || "[]")); } catch { return new Set(); }
+        });
         const [dragOverFolder, setDragOverFolder] = React.useState("");
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -399,6 +402,9 @@ const h = React.createElement;
             else group.items.sort((a, b) => compareText(a.title, b.title));
           });
           entries.sort((a, b) => {
+            const ap = pinnedFolders.has(a[0]);
+            const bp = pinnedFolders.has(b[0]);
+            if (ap !== bp) return ap ? -1 : 1;
             if (docSort === "latest") {
               const ta = Math.max(...a[1].items.map((i) => i.updatedAt ? new Date(i.updatedAt).getTime() : 0), 0);
               const tb = Math.max(...b[1].items.map((i) => i.updatedAt ? new Date(i.updatedAt).getTime() : 0), 0);
@@ -619,6 +625,15 @@ const h = React.createElement;
           setFolderOrder(names);
           localStorage.setItem("hk.folderOrder", JSON.stringify(names));
           setDraggedFolderName("");
+        };
+
+        const togglePinFolder = (folder) => {
+          setPinnedFolders((prev) => {
+            const next = new Set(prev);
+            if (next.has(folder)) next.delete(folder); else next.add(folder);
+            localStorage.setItem("hk.pinnedFolders", JSON.stringify([...next]));
+            return next;
+          });
         };
 
         const runSearch = (event) => {
@@ -1067,6 +1082,7 @@ const h = React.createElement;
                         },
                           h("span", null, isOpen ? "▾" : "▸"),
                           h("strong", null, folder),
+                          pinnedFolders.has(folder) && h("span", { className: "pin-mark", title: "고정됨" }, "📌"),
                           h("span", null, items.length)
                         ),
                         h("button", {
@@ -1079,6 +1095,9 @@ const h = React.createElement;
                           }
                         }, "..."),
                         explorerMenu && explorerMenu.type === "folder" && explorerMenu.id === folder && h("div", { className: "explorer-menu" },
+                          h("button", { type: "button", onClick: () => { setExplorerMenu(null); togglePinFolder(folder); } },
+                            pinnedFolders.has(folder) ? "📌 고정 해제" : "📌 고정하기"
+                          ),
                           h("button", { type: "button", onClick: () => { setExplorerMenu(null); startCreate(); setNewCustomer(folder); } }, "새 문서"),
                           h("button", { type: "button", onClick: () => { setExplorerMenu(null); startRenameFolder(folder); } }, "이름 변경"),
                           h("button", { type: "button", className: "danger-text", onClick: () => { setExplorerMenu(null); deleteFolder(folder); } }, "삭제")
