@@ -118,6 +118,10 @@ export function App() {
         const [fmViewMode, setFmViewMode] = React.useState("grid");
         const [fmSelectedFolders, setFmSelectedFolders] = React.useState(() => new Set());
         const [fmSelectedFiles, setFmSelectedFiles] = React.useState(() => new Set());
+        const [bulkUploadOpen, setBulkUploadOpen] = React.useState(false);
+        const [bulkUploadFolder, setBulkUploadFolder] = React.useState("");
+        const [bulkUploadItems, setBulkUploadItems] = React.useState([]);
+        const [bulkUploading, setBulkUploading] = React.useState(false);
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -538,6 +542,60 @@ export function App() {
           });
         };
 
+
+        const openBulkUpload = () => {
+          setBulkUploadOpen(true);
+          setBulkUploadFolder("");
+          setBulkUploadItems([]);
+          setBulkUploading(false);
+        };
+
+        const addBulkFiles = (fileList) => {
+          const accepted = Array.from(fileList).filter((f) => /\.(md|docx|pdf)$/i.test(f.name));
+          setBulkUploadItems((prev) => {
+            const existing = new Set(prev.map((i) => i.file.name));
+            const incoming = accepted
+              .filter((f) => !existing.has(f.name))
+              .map((f) => ({ file: f, name: f.name.replace(/\.(md|docx|pdf)$/i, ""), status: "pending", error: "" }));
+            return [...prev, ...incoming];
+          });
+        };
+
+        const removeBulkItem = (idx) => {
+          setBulkUploadItems((prev) => prev.filter((_, i) => i !== idx));
+        };
+
+        const runBulkUpload = async () => {
+          if (!bulkUploadFolder) { setError("업로드할 폴더를 선택하세요."); return; }
+          if (bulkUploadItems.length === 0) { setError("파일을 선택하세요."); return; }
+          setBulkUploading(true);
+          for (let i = 0; i < bulkUploadItems.length; i++) {
+            if (bulkUploadItems[i].status === "done") continue;
+            const item = bulkUploadItems[i];
+            try {
+              setBulkUploadItems((prev) => prev.map((x, j) => j === i ? { ...x, status: "converting" } : x));
+              const form = new FormData();
+              form.append("file", item.file);
+              const cr = await fetch("/api/convert", { method: "POST", body: form });
+              const cd = await cr.json();
+              if (cd.error) throw new Error(cd.error);
+
+              setBulkUploadItems((prev) => prev.map((x, j) => j === i ? { ...x, status: "saving" } : x));
+              const sr = await fetch("/api/doc", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ customer: bulkUploadFolder, title: item.name, content: cd.content || "" }),
+              });
+              const sd = await sr.json();
+              if (sd.error) throw new Error(sd.error);
+              setBulkUploadItems((prev) => prev.map((x, j) => j === i ? { ...x, status: "done" } : x));
+            } catch (err) {
+              setBulkUploadItems((prev) => prev.map((x, j) => j === i ? { ...x, status: "error", error: err.message } : x));
+            }
+          }
+          setBulkUploading(false);
+          await Promise.all([loadDocs(), refreshMeta()]);
+        };
 
         const saveProviders = (list) => {
           setApiProviders(list);
@@ -1252,6 +1310,80 @@ export function App() {
               )
             )
           ),
+          bulkUploadOpen && h("div", { className: "modal-backdrop", onMouseDown: () => { if (!bulkUploading) setBulkUploadOpen(false); } },
+            h("section", { className: "bulk-modal", onMouseDown: (e) => e.stopPropagation() },
+
+              h("header", { className: "fm-header" },
+                h("div", { className: "fm-title" },
+                  h(Icon, { name: "upload" }),
+                  h("strong", null, "파일 일괄 업로드")
+                ),
+                !bulkUploading && h("button", { type: "button", className: "icon-button", onClick: () => setBulkUploadOpen(false) }, "×")
+              ),
+
+              h("div", { className: "bulk-folder-row" },
+                h("label", { className: "bulk-folder-label" }, "대상 폴더"),
+                h("select", {
+                  className: "bulk-folder-select",
+                  value: bulkUploadFolder,
+                  onChange: (e) => setBulkUploadFolder(e.target.value),
+                  disabled: bulkUploading
+                },
+                  h("option", { value: "" }, "폴더 선택"),
+                  folders.map((f) => h("option", { key: f.name, value: f.name }, f.name))
+                )
+              ),
+
+              !bulkUploading && h("label", {
+                className: "bulk-drop-zone",
+                onDragOver: (e) => { e.preventDefault(); e.currentTarget.classList.add("drag-over"); },
+                onDragLeave: (e) => e.currentTarget.classList.remove("drag-over"),
+                onDrop: (e) => { e.preventDefault(); e.currentTarget.classList.remove("drag-over"); addBulkFiles(e.dataTransfer.files); }
+              },
+                h("input", { type: "file", multiple: true, accept: ".md,.docx,.pdf", style: { display: "none" }, onChange: (e) => { addBulkFiles(e.target.files); e.target.value = ""; } }),
+                h("span", { className: "bulk-drop-main" }, "파일을 끌어다 놓거나 클릭하여 선택"),
+                h("span", { className: "bulk-drop-hint" }, ".md · .docx · .pdf · 여러 파일 동시 선택 가능")
+              ),
+
+              bulkUploadItems.length > 0 && h("div", { className: "bulk-file-list" },
+                bulkUploadItems.map((item, i) =>
+                  h("div", { key: i, className: "bulk-file-row bulk-s-" + item.status },
+                    h("span", { className: "bulk-file-status-icon" },
+                      item.status === "done"      ? "✓" :
+                      item.status === "error"     ? "✗" :
+                      item.status === "converting" || item.status === "saving" ? "⟳" : "○"
+                    ),
+                    h("span", { className: "bulk-file-name" }, item.file.name),
+                    item.status === "converting" && h("span", { className: "bulk-file-label" }, "변환 중…"),
+                    item.status === "saving"     && h("span", { className: "bulk-file-label" }, "저장 중…"),
+                    item.status === "done"       && h("span", { className: "bulk-file-label done" }, "완료"),
+                    item.status === "error"      && h("span", { className: "bulk-file-label err" }, item.error || "실패"),
+                    !bulkUploading && item.status !== "done" && h("button", { type: "button", className: "bulk-file-remove", onClick: () => removeBulkItem(i) }, "×")
+                  )
+                )
+              ),
+
+              h("div", { className: "bulk-actions" },
+                (() => {
+                  const pending = bulkUploadItems.filter((x) => x.status === "pending" || x.status === "error").length;
+                  const done = bulkUploadItems.filter((x) => x.status === "done").length;
+                  const total = bulkUploadItems.length;
+                  if (bulkUploading) return h("span", { className: "bulk-uploading-msg" }, `업로드 중… (${done}/${total})`);
+                  return [
+                    h("button", { key: "close", type: "button", onClick: () => setBulkUploadOpen(false) }, "닫기"),
+                    pending > 0 && h("button", {
+                      key: "run",
+                      type: "button",
+                      className: "primary",
+                      disabled: !bulkUploadFolder,
+                      onClick: runBulkUpload
+                    }, `업로드 시작 (${pending}개)`)
+                  ];
+                })()
+              )
+            )
+          ),
+
           h("nav", { className: "side-rail left-rail", "aria-label": "왼쪽 메뉴" },
             h("button", {
               type: "button",
@@ -1324,6 +1456,12 @@ export function App() {
                   title: "새 폴더",
                   onClick: () => openFolderPicker("sidebar")
                 }, h(Icon, { name: "folder-plus" })),
+                h("button", {
+                  type: "button",
+                  className: "icon-button explorer-action",
+                  title: "파일 일괄 업로드",
+                  onClick: openBulkUpload
+                }, h(Icon, { name: "upload" })),
                 h("div", { style: { position: "relative", display: "inline-flex" } },
                   h("button", {
                     type: "button",

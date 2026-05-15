@@ -1622,3 +1622,112 @@
         .main { min-height: 70vh; }
         .reader { padding: 12px; }
       }
+
+      /* ── 파일 일괄 업로드 모달 ───────────────────── */
+      .bulk-modal {
+        width: min(520px, calc(100vw - 32px));
+        max-height: min(640px, calc(100vh - 48px));
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.35);
+        overflow: hidden;
+      }
+      .bulk-folder-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .bulk-folder-label { font-size: 13px; color: var(--muted); white-space: nowrap; }
+      .bulk-folder-select {
+        flex: 1;
+        padding: 5px 8px;
+        font-size: 13px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--text);
+      }
+      .bulk-drop-zone {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        margin: 14px 16px;
+        padding: 22px 16px;
+        border: 2px dashed var(--line);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+        user-select: none;
+        flex-shrink: 0;
+      }
+      .bulk-drop-zone:hover,
+      .bulk-drop-zone.drag-over {
+        border-color: var(--accent);
+        background: var(--soft);
+      }
+      .bulk-drop-main { font-size: 13px; color: var(--text); }
+      .bulk-drop-hint { font-size: 11px; color: var(--muted); }
+      .bulk-file-list {
+        overflow-y: auto;
+        flex: 1;
+        border-top: 1px solid var(--line);
+        padding: 6px 0;
+      }
+      .bulk-file-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 16px;
+        font-size: 12px;
+        min-height: 32px;
+      }
+      .bulk-file-row:hover { background: #f8fafc; }
+      .bulk-file-status-icon {
+        flex-shrink: 0;
+        width: 16px;
+        text-align: center;
+        font-size: 13px;
+      }
+      .bulk-s-done   .bulk-file-status-icon { color: #22c55e; }
+      .bulk-s-error  .bulk-file-status-icon { color: #ef4444; }
+      .bulk-s-converting .bulk-file-status-icon,
+      .bulk-s-saving     .bulk-file-status-icon { color: var(--accent); animation: spin 1s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .bulk-file-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text);
+      }
+      .bulk-file-label { flex-shrink: 0; font-size: 11px; color: var(--muted); }
+      .bulk-file-label.done { color: #22c55e; }
+      .bulk-file-label.err  { color: #ef4444; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .bulk-file-remove {
+        flex-shrink: 0;
+        padding: 0 4px;
+        font-size: 14px;
+        line-height: 1;
+        border: none;
+        background: none;
+        color: var(--muted);
+        cursor: pointer;
+        border-radius: 3px;
+      }
+      .bulk-file-remove:hover { background: #fee2e2; color: #ef4444; }
+      .bulk-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 10px 16px;
+        border-top: 1px solid var(--line);
+        flex-shrink: 0;
+      }
+      .bulk-uploading-msg { font-size: 13px; color: var(--muted); }
