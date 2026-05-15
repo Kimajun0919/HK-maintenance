@@ -1747,7 +1747,7 @@ const h = React.createElement;
                     h("input", {
                       value: searchQuery,
                       onChange: (event) => setSearchQuery(event.target.value),
-                      placeholder: "키워드를 입력해주세요"
+                      placeholder: "궁금하신 내용을 입력하세요"
                     }),
                     h("button", { className: "primary", type: "submit" }, loading === "search" ? "중" : "검색")
                   ),
