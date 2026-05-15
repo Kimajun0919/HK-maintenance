@@ -1121,7 +1121,7 @@ export function App() {
                   }, "‹")
                 )
               ),
-              h("p", null, "자료를 폴더별로 열고 가운데에서 바로 확인")
+              h("p", null, "저장된 자료")
             ),
             h("div", { className: "stats" },
               h("span", null, "문서 ", h("b", null, meta ? meta.docCount : "-")),
@@ -1573,7 +1573,7 @@ export function App() {
                 ),
                 h("h2", null, "검색 / 질문")
               ),
-              h("p", null, "검색 결과에서 자료를 열거나 문서 기반 답변을 확인")
+              h("p", null, "검색 및 AI 질문")
             ),
             h("div", { className: "tool-tabs" },
               h("button", {
