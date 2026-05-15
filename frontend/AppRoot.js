@@ -44,7 +44,10 @@ export function App() {
         const [apForm, setApForm] = React.useState({});
         const [useLlm, setUseLlm] = React.useState(false);
         const [leftWidth, setLeftWidth] = React.useState(() => Number(localStorage.getItem("hk.leftWidth")) || 320);
-        const [rightWidth, setRightWidth] = React.useState(() => Number(localStorage.getItem("hk.rightWidth")) || 360);
+        const [rightWidth, setRightWidth] = React.useState(() => {
+          const saved = Number(localStorage.getItem("hk.rightWidth"));
+          return saved && saved >= 520 ? saved : 720;
+        });
         const [leftCollapsed, setLeftCollapsed] = React.useState(() => localStorage.getItem("hk.leftCollapsed") === "1");
         const [rightCollapsed, setRightCollapsed] = React.useState(() => localStorage.getItem("hk.rightCollapsed") === "1");
         const [explorerMenu, setExplorerMenu] = React.useState(null);
@@ -106,7 +109,7 @@ export function App() {
             if (side === "left") {
               setLeftWidth(clamp(startLeft + delta, 240, 560));
             } else {
-              setRightWidth(clamp(startRight - delta, 280, 620));
+              setRightWidth(clamp(startRight - delta, 360, 900));
             }
           };
 
@@ -1622,7 +1625,7 @@ export function App() {
               type: "button",
               className: "rail-button",
               title: "검색/질문 폭 초기화",
-              onClick: () => setRightWidth(360)
+              onClick: () => setRightWidth(720)
             }, "↔"),
             h("div", { className: "rail-spacer" })
           )
