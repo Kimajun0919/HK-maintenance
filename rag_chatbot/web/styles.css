@@ -170,6 +170,18 @@
         font-size: 14px;
         line-height: 1;
       }
+      .explorer-action {
+        width: 28px;
+        height: 28px;
+        border-color: transparent;
+        background: transparent;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .explorer-action:hover {
+        border-color: var(--line);
+        background: #f8fafc;
+      }
       .brand, .tool-head {
         padding: 10px 12px;
         border-bottom: 1px solid var(--line);

@@ -784,6 +784,18 @@ const h = React.createElement;
                 h("div", { className: "panel-actions" },
                   h("button", {
                     type: "button",
+                    className: "icon-button explorer-action",
+                    title: "새 문서",
+                    onClick: startCreate
+                  }, "+"),
+                  h("button", {
+                    type: "button",
+                    className: "icon-button explorer-action",
+                    title: "새 폴더",
+                    onClick: () => openFolderPicker("sidebar")
+                  }, "[]"),
+                  h("button", {
+                    type: "button",
                     className: "icon-button",
                     title: "왼쪽 사이드바 접기",
                     onClick: () => setLeftCollapsed(true)
@@ -825,18 +837,7 @@ const h = React.createElement;
                   h("button", { type: "button", onClick: () => setShowFolderCreate(false) }, "취소"),
                   h("button", { type: "submit", className: "primary" }, loading === "folder" ? "생성 중" : "생성")
                 )
-              ),
-              h("button", {
-                type: "button",
-                className: "primary",
-                onClick: startCreate,
-                style: { marginTop: "8px", width: "100%", minHeight: "34px" }
-              }, "새 문서"),
-              h("button", {
-                type: "button",
-                onClick: () => openFolderPicker("sidebar"),
-                style: { marginTop: "8px", width: "100%", minHeight: "34px" }
-              }, "새 폴더")
+              )
             ),
             h("div", { className: "folder-list" },
               groupedDocs.map(([folder, items]) => {
