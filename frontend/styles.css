@@ -592,47 +592,6 @@
         display: flex;
         flex-direction: column;
       }
-      .topbar {
-        height: 54px;
-        flex: 0 0 auto;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        padding: 0 18px;
-        border-bottom: 1px solid var(--line);
-        background: #fff;
-      }
-      .topbar strong {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 14px;
-      }
-      .topbar-title {
-        flex: 1 1 auto;
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .topbar-tools {
-        flex: 0 1 auto;
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .topbar span {
-        min-width: 0;
-        max-width: 42vw;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--muted);
-        font-size: 12px;
-      }
       .reader {
         flex: 1;
         min-height: 0;
@@ -654,6 +613,19 @@
         padding: 5px 10px 0;
         border-bottom: 1px solid #cbd5e1;
         background: #dfe6ef;
+      }
+      .doc-window-bar.empty {
+        align-items: center;
+        padding-bottom: 5px;
+      }
+      .doc-window-empty {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .doc-window-rail {
+        flex: 0 0 auto;
+        margin-right: 4px;
       }
       .doc-window-tab {
         position: relative;

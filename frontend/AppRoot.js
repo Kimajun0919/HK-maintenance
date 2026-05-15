@@ -1304,27 +1304,13 @@ export function App() {
           }),
 
           h("main", { className: "main" },
-            h("header", { className: "topbar" },
-              h("div", { className: "topbar-title" },
-                leftCollapsed && h("button", {
-                  type: "button",
-                  className: "icon-button",
-                  title: "왼쪽 사이드바 펼치기",
-                  onClick: () => setLeftCollapsed(false)
-                }, "›"),
-                h("strong", null, doc ? doc.title : "자료를 선택하세요")
-              ),
-              h("div", { className: "topbar-tools" },
-                h("span", null, doc ? doc.source : "왼쪽 자료 목록 또는 오른쪽 검색을 사용하세요"),
-                rightCollapsed && h("button", {
-                  type: "button",
-                  className: "icon-button",
-                  title: "오른쪽 사이드바 펼치기",
-                  onClick: () => setRightCollapsed(false)
-                }, "‹")
-              )
-            ),
-            openDocs.length > 0 && h("div", { className: "doc-window-bar" },
+            h("div", { className: "doc-window-bar " + (openDocs.length === 0 ? "empty" : "") },
+              leftCollapsed && h("button", {
+                type: "button",
+                className: "icon-button doc-window-rail",
+                title: "왼쪽 사이드바 펼치기",
+                onClick: () => setLeftCollapsed(false)
+              }, "›"),
               openDocs.map((item) => h("div", {
                 key: item.source,
                 className: "doc-window-tab " + (doc && doc.source === item.source ? "active" : "")
@@ -1347,7 +1333,14 @@ export function App() {
                     closeDoc(item.source);
                   }
                 }, "×")
-              ))
+              )),
+              openDocs.length === 0 && h("span", { className: "doc-window-empty" }, "자료를 선택하세요"),
+              rightCollapsed && h("button", {
+                type: "button",
+                className: "icon-button doc-window-rail",
+                title: "오른쪽 사이드바 펼치기",
+                onClick: () => setRightCollapsed(false)
+              }, "‹")
             ),
             h("section", { className: "reader " + (openDocs.length > 0 ? "has-doc-windows" : "") },
               error && h("p", { className: "error" }, error),
