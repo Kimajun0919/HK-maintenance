@@ -804,18 +804,6 @@ const h = React.createElement;
                 h("div", { className: "panel-actions" },
                   h("button", {
                     type: "button",
-                    className: "icon-button explorer-action",
-                    title: "새 문서",
-                    onClick: startCreate
-                  }, h(Icon, { name: "file-plus" })),
-                  h("button", {
-                    type: "button",
-                    className: "icon-button explorer-action",
-                    title: "새 폴더",
-                    onClick: () => openFolderPicker("sidebar")
-                  }, h(Icon, { name: "folder-plus" })),
-                  h("button", {
-                    type: "button",
                     className: "icon-button",
                     title: "왼쪽 사이드바 접기",
                     onClick: () => setLeftCollapsed(true)
@@ -846,6 +834,20 @@ const h = React.createElement;
                 h("option", { value: "path-asc" }, "경로 오름차순"),
                 h("option", { value: "path-desc" }, "경로 내림차순"),
                 h("option", { value: "custom" }, "폴더 사용자 순서")
+              ),
+              h("div", { className: "explorer-action-row" },
+                h("button", {
+                  type: "button",
+                  className: "icon-button explorer-action",
+                  title: "새 문서",
+                  onClick: startCreate
+                }, h(Icon, { name: "file-plus" })),
+                h("button", {
+                  type: "button",
+                  className: "icon-button explorer-action",
+                  title: "새 폴더",
+                  onClick: () => openFolderPicker("sidebar")
+                }, h(Icon, { name: "folder-plus" }))
               ),
               showFolderCreate && h("form", { className: "inline-form", onSubmit: createFolder },
                 h("input", {

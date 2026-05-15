@@ -213,6 +213,11 @@
         padding: 8px;
         border-bottom: 1px solid var(--line);
       }
+      .explorer-action-row {
+        display: flex;
+        gap: 4px;
+        margin-top: 6px;
+      }
       .folder-list {
         flex: 1;
         min-height: 0;
