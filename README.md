@@ -1,5 +1,12 @@
 # HK-maintenance
 
+## Security Defaults
+
+- Local execution binds to `127.0.0.1` by default. Use `APP_HOST=0.0.0.0` only when another device must connect.
+- If the server is reachable from another machine or the internet, set `APP_AUTH_TOKEN` and use that token in the browser prompt.
+- `/api/folder/parse` is local-only by default. Remote folder parsing requires `APP_ALLOW_REMOTE_FOLDER_PARSE=1`.
+- Release zip packaging redacts document lines that look like credentials unless `-SkipRedaction` is passed.
+
 기업별 유지보수 매뉴얼, 운영 참고자료를 보존·관리하고 RAG 기반으로 검색·질문할 수 있는 웹 포털입니다.
 
 ## 구조

@@ -1,5 +1,12 @@
 # Link Download Release Guide
 
+## Security Notes
+
+- `HK-maintenance-local-<version>.zip` redacts document lines that look like credentials by default.
+- Do not publish the original maintenance document folders directly. They may contain real account, server, VPN, or password data.
+- Set `APP_AUTH_TOKEN` whenever the server is reachable from another machine or from the internet.
+- `/api/folder/parse` is local-only by default. Remote folder parsing requires explicit `APP_ALLOW_REMOTE_FOLDER_PARSE=1`.
+
 스토어에 올리지 않고 링크로 배포하는 방식입니다.
 
 ## 권장 배포 산출물

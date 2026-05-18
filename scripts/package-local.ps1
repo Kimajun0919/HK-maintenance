@@ -1,6 +1,7 @@
 param(
     [string]$Version = "dev",
-    [string]$OutputDir = "dist"
+    [string]$OutputDir = "dist",
+    [switch]$SkipRedaction
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,6 +32,25 @@ foreach ($item in $include) {
     $source = Join-Path $root $item
     if (Test-Path $source) {
         Copy-Item -LiteralPath $source -Destination $stage -Recurse -Force
+    }
+}
+
+if (-not $SkipRedaction) {
+    $docsStage = Join-Path $stage "organized_maintenance_docs_simple"
+    if (Test-Path $docsStage) {
+        $sensitiveLinePattern = "(?i)(password|passwd|\bpw\b|\bid\b\s*[:=/]|\broot\b|vpn|otp|apikey|api[_-]?key|secret|token|postgresql://|mysql://|mongodb://|\uBE44\uBC00\uBC88\uD638|\uACC4\uC815|\uAD00\uB9AC\uC790|\uC778\uC99D|Koreanairnew|kcnd|home2402|koag2170|dental7788|welcome1|home12)"
+        Get-ChildItem -Path $docsStage -Recurse -File -Include *.md,*.txt |
+            ForEach-Object {
+                $content = Get-Content -LiteralPath $_.FullName -Encoding UTF8
+                $redacted = $content | ForEach-Object {
+                    if ($_ -match $sensitiveLinePattern) {
+                        "[REDACTED sensitive credential line]"
+                    } else {
+                        $_
+                    }
+                }
+                Set-Content -LiteralPath $_.FullName -Value $redacted -Encoding UTF8
+            }
     }
 }
 

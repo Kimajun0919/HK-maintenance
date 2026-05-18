@@ -1,5 +1,5 @@
 ﻿import { React, h } from "./shared/react.js";
-import { api } from "./lib/api.js";
+import { api, authFetch } from "./lib/api.js";
 import { Icon } from "./components/Icon.js";
 import { Markdown } from "./components/Markdown.js";
 import { RichEditor } from "./components/RichEditor.js";
@@ -436,7 +436,7 @@ export function App() {
           setLoading("folder");
           setError("");
           try {
-            let res = await fetch("/api/folder", {
+            let res = await authFetch("/api/folder", {
               method: "DELETE",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ name: folder }),
@@ -448,7 +448,7 @@ export function App() {
                 ? `폴더에 문서 ${count}개가 있습니다. 모두 휴지통으로 이동하고 폴더를 삭제할까요?`
                 : "폴더가 비어 있지 않습니다. 강제 삭제할까요?";
               if (!confirm(msg)) return;
-              res = await fetch("/api/folder", {
+              res = await authFetch("/api/folder", {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name: folder, force: true }),
@@ -641,12 +641,12 @@ export function App() {
               setBulkUploadItems((prev) => prev.map((x, j) => j === i ? { ...x, status: "converting" } : x));
               const form = new FormData();
               form.append("file", item.file);
-              const cr = await fetch("/api/convert", { method: "POST", body: form });
+              const cr = await authFetch("/api/convert", { method: "POST", body: form });
               const cd = await cr.json();
               if (cd.error) throw new Error(cd.error);
 
               setBulkUploadItems((prev) => prev.map((x, j) => j === i ? { ...x, status: "saving" } : x));
-              const sr = await fetch("/api/doc", {
+              const sr = await authFetch("/api/doc", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ customer: bulkUploadFolder, title: item.name, content: cd.content || "" }),
@@ -792,7 +792,7 @@ export function App() {
             return;
           }
           setLoading("download");
-          fetch("/api/download", {
+          authFetch("/api/download", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ folders: foldersToDownload, files: filesToDownload }),
@@ -1938,7 +1938,7 @@ export function App() {
                         const form = new FormData();
                         form.append("file", file);
                         setLoading("convert");
-                        fetch("/api/convert", { method: "POST", body: form })
+                        authFetch("/api/convert", { method: "POST", body: form })
                           .then((r) => r.json())
                           .then((d) => {
                             if (d.error) throw new Error(d.error);
@@ -1960,7 +1960,7 @@ export function App() {
                         const form = new FormData();
                         form.append("file", file);
                         setLoading("convert");
-                        fetch("/api/convert", { method: "POST", body: form })
+                        authFetch("/api/convert", { method: "POST", body: form })
                           .then((r) => r.json())
                           .then((d) => {
                             if (d.error) throw new Error(d.error);

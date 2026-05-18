@@ -5,6 +5,7 @@ import re
 import io
 import json
 import mimetypes
+import secrets
 import time
 import urllib.parse
 import urllib.request
@@ -18,7 +19,14 @@ from fastapi import Request
 
 from config import (
     ANTHROPIC_API_URL,
+    APP_ALLOW_UNAUTH_LOCAL,
     APP_DIR,
+    APP_AUTH_REQUIRED,
+    APP_AUTH_TOKEN,
+    APP_ALLOW_REMOTE_FOLDER_PARSE,
+    APP_HOST,
+    APP_LOCAL_SESSION_TOKEN,
+    APP_PORT,
     ASSET_MAX_SIZE_BYTES,
     ASSET_MAX_SIZE_MB,
     DEFAULT_CLAUDE_MODEL,
@@ -86,6 +94,8 @@ def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
         "system": rag.SYSTEM_INSTRUCTION_KO,
         "messages": [{"role": "user", "content": prompt}],
     }
+    if not _is_http_url(ANTHROPIC_API_URL):
+        return "Claude API URL은 http 또는 https URL이어야 합니다."
     request = urllib.request.Request(
         ANTHROPIC_API_URL,
         data=json.dumps(payload).encode("utf-8"),
@@ -97,7 +107,7 @@ def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with urllib.request.urlopen(request, timeout=90) as response:  # nosec B310
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
@@ -125,6 +135,11 @@ def _join_api_url(base_url: str, chat_path: str) -> str:
     if base_url.endswith("/v1") and chat_path.startswith("/v1/"):
         chat_path = chat_path[3:]
     return f"{base_url}{chat_path}"
+
+
+def _is_http_url(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def _content_to_text(value) -> str:
@@ -183,6 +198,8 @@ def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str
     base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
     model = (model or "gpt-4o-mini").strip()
     request_url = _join_api_url(base_url, chat_path)
+    if not _is_http_url(request_url):
+        return "OpenAI-compatible API URL은 http 또는 https URL이어야 합니다."
 
     results, context = rag.retrieve_for_llm(query, top_k)
     if not context:
@@ -217,7 +234,7 @@ def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with urllib.request.urlopen(request, timeout=90) as response:  # nosec B310
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
@@ -354,6 +371,43 @@ def _json_response(data, status_code: int = 200):
     from fastapi.responses import JSONResponse
 
     return JSONResponse(data, status_code=status_code)
+
+
+_LOCAL_CLIENTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _request_auth_token(request: Request) -> str:
+    header = request.headers.get("x-hk-auth", "").strip()
+    if header:
+        return header
+    auth = request.headers.get("authorization", "").strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+def _is_local_request(request: Request) -> bool:
+    host = request.client.host if request.client else ""
+    return host in _LOCAL_CLIENTS
+
+
+def _expected_auth_token(request: Request) -> str:
+    if APP_AUTH_TOKEN:
+        return APP_AUTH_TOKEN
+    if _is_local_request(request):
+        return APP_LOCAL_SESSION_TOKEN
+    return ""
+
+
+def _auth_is_required(request: Request) -> bool:
+    path = request.url.path
+    if not (path.startswith("/api") or path == "/healthz"):
+        return False
+    if APP_AUTH_REQUIRED:
+        return True
+    if _is_local_request(request) and APP_ALLOW_UNAUTH_LOCAL:
+        return False
+    return True
 
 
 def _safe_doc_path(source: str) -> Path | None:
@@ -752,12 +806,21 @@ def create_api_app():
 
     @api_app.middleware("http")
     async def no_cache_frontend_assets(request: Request, call_next):
+        if _auth_is_required(request):
+            expected = _expected_auth_token(request)
+            if not expected:
+                return _json_response({"error": "server auth token is not configured"}, status_code=503)
+            supplied = _request_auth_token(request)
+            if not secrets.compare_digest(supplied, expected):
+                return _json_response({"error": "authentication required"}, status_code=401)
         response = await call_next(request)
         path = request.url.path
         if path == "/" or path.startswith("/web/"):
             response.headers["cache-control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["pragma"] = "no-cache"
             response.headers["expires"] = "0"
+        if path == "/" and APP_AUTH_TOKEN:
+            response.set_cookie("hk_auth_hint", "required", httponly=False, samesite="strict")
         return response
 
     @api_app.get("/", response_class=HTMLResponse)
@@ -1199,6 +1262,8 @@ def create_api_app():
 
     @api_app.post("/api/folder/parse")
     async def api_parse_folder(request: Request):
+        if not _is_local_request(request) and not APP_ALLOW_REMOTE_FOLDER_PARSE:
+            return _json_response({"error": "folder parser is local-only"}, status_code=403)
         try:
             payload = await request.json()
         except json.JSONDecodeError:
@@ -1294,8 +1359,8 @@ def create_api_app():
         if item_type == "all":
             with _db_connect() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where deleted_at is not null")
-                    cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where deleted_at is not null")
+                    cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where deleted_at is not null")  # nosec B608
+                    cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where deleted_at is not null")  # nosec B608
             rag.refresh_index()
             return {"ok": True}
         if not key:
@@ -1408,4 +1473,4 @@ app = create_api_app()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("APP_PORT", "7860")))
+    uvicorn.run(app, host=APP_HOST, port=APP_PORT)
