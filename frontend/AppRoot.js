@@ -843,6 +843,7 @@ export function App() {
 
         const askChat = (event) => {
           event && event.preventDefault();
+          if (loading === "chat") return;
           const term = chatQuery.trim();
           if (!term) return;
           if (!activeProviderId || !apiProviders.find((x) => x.id === activeProviderId)) {
@@ -2123,9 +2124,15 @@ export function App() {
                       rows: 1,
                       value: chatQuery,
                       onChange: (event) => setChatQuery(event.target.value),
+                      onKeyDown: (event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          askChat(event);
+                        }
+                      },
                       placeholder: "저장된 문서를 기반으로 답해드립니다."
                     }),
-                    h("button", { className: "primary", type: "submit" }, loading === "chat" ? "답변 중" : "질문하기")
+                    h("button", { className: "primary", type: "submit", disabled: loading === "chat" }, loading === "chat" ? "답변 중" : "질문하기")
                   ),
                   h("div", { className: "ap-selector-row" },
                     h("select", {
@@ -2148,6 +2155,18 @@ export function App() {
                       h("input", { type: "checkbox", checked: useLlm, onChange: (event) => setUseLlm(event.target.checked) }),
                       "LLM 답변"
                     )
+                  )
+                ),
+                loading === "chat" && h("div", { key: "chat-thinking", className: "thinking-panel", "aria-live": "polite" },
+                  h("div", { className: "thinking-spinner", "aria-hidden": "true" }),
+                  h("div", { className: "thinking-copy" },
+                    h("strong", null, "AI가 답변을 생성하는 중입니다"),
+                    h("span", null, "문서 검색 결과를 바탕으로 답변을 정리하고 있습니다.")
+                  ),
+                  h("div", { className: "thinking-dots", "aria-hidden": "true" },
+                    h("span", null),
+                    h("span", null),
+                    h("span", null)
                   )
                 ),
                 chatAnswer && h("div", {

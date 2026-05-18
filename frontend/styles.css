@@ -33,6 +33,11 @@
         color: #fff;
       }
       button.primary:hover { background: var(--accent-dark); }
+      button:disabled,
+      button:disabled:hover {
+        cursor: not-allowed;
+        opacity: .68;
+      }
       input, textarea, select {
         width: 100%;
         border: 1px solid var(--line);
@@ -1337,6 +1342,60 @@
       }
       .question-row button {
         height: 38px;
+      }
+      .thinking-panel {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) 34px;
+        gap: 10px;
+        align-items: center;
+        padding: 11px 12px;
+        border: 1px solid #99f6e4;
+        border-radius: 8px;
+        background: #f0fdfa;
+        color: #134e4a;
+      }
+      .thinking-spinner {
+        width: 20px;
+        height: 20px;
+        border: 3px solid #ccfbf1;
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: thinking-spin .8s linear infinite;
+      }
+      .thinking-copy {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+      .thinking-copy strong {
+        font-size: 13px;
+        line-height: 1.25;
+      }
+      .thinking-copy span {
+        color: #0f766e;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .thinking-dots {
+        display: flex;
+        justify-content: flex-end;
+        gap: 4px;
+      }
+      .thinking-dots span {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--accent);
+        animation: thinking-dot 1s ease-in-out infinite;
+      }
+      .thinking-dots span:nth-child(2) { animation-delay: .15s; }
+      .thinking-dots span:nth-child(3) { animation-delay: .3s; }
+      @keyframes thinking-spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes thinking-dot {
+        0%, 80%, 100% { transform: translateY(0); opacity: .45; }
+        40% { transform: translateY(-4px); opacity: 1; }
       }
       .toolbar {
         display: grid;
