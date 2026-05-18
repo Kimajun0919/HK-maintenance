@@ -555,6 +555,10 @@ def create_api_app():
             return FileResponse(index)
         return HTMLResponse("<h1>HK Maintenance Portal</h1><p>web/index.html is missing.</p>")
 
+    @api_app.get("/favicon.ico")
+    def favicon():
+        return Response(status_code=204)
+
     @api_app.get("/healthz")
     def healthz():
         return {"ok": True, "docs_dir": str(DOCS_DIR), "chunks": len(rag.chunks), "llm": MODEL_NAME if USE_LLM else "disabled"}
@@ -1156,4 +1160,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("APP_PORT", "7860")))
-
