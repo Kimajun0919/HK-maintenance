@@ -750,6 +750,16 @@ def create_api_app():
     if WEB_DIR.exists():
         api_app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
 
+    @api_app.middleware("http")
+    async def no_cache_frontend_assets(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/web/"):
+            response.headers["cache-control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["pragma"] = "no-cache"
+            response.headers["expires"] = "0"
+        return response
+
     @api_app.get("/", response_class=HTMLResponse)
     def home():
         index = WEB_DIR / "index.html"
