@@ -89,6 +89,7 @@ OpenAI-compatible 응답 파서는 `choices[0].message.content` 외에도 `choic
 | DELETE | `/api/doc` | 휴지통 이동 |
 | POST | `/api/asset` | 이미지 업로드 |
 | POST | `/api/convert` | .docx/.pdf → Markdown 변환 |
+| POST | `/api/folder/parse` | 서버 로컬 폴더 분석·문서 가져오기 |
 | GET | `/api/trash` | 휴지통 목록 |
 | POST | `/api/trash/restore` | 복원 |
 | DELETE | `/api/trash` | 영구 삭제 |

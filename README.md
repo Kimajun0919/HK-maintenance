@@ -8,6 +8,9 @@
 |---|---|
 | `backend/` | FastAPI 백엔드 (RAG 검색·질문, 문서 CRUD API) |
 | `frontend/` | React 웹 포털 (CDN 기반, 빌드 없음) |
+| `apps/windows/` | Windows WebView2 앱 골격 |
+| `apps/macos/` | macOS WebView 앱 골격 |
+| `apps/android/` | Android WebView 앱 골격 |
 | `organized_maintenance_docs_simple/` | 기본 문서 정리본 (Supabase 미사용 시 파일 소스) |
 | `original_backup/` | 원본 md 및 이미지 파일 백업 |
 | `scripts/deploy_hf_space.py` | Hugging Face Spaces 배포 번들 생성 스크립트 |
@@ -24,6 +27,7 @@
 - **RAG 검색**: 문자 n-gram 기반 문서 검색
 - **LLM 질문**: 외부 API 연동 (Claude, OpenAI-compatible, Groq, Ollama, Luxia 등)
 - **API 관리**: 여러 LLM API 등록·선택 (인증 헤더·엔드포인트 커스텀)
+- **폴더 파서**: 로컬 폴더의 `.md`, `.txt`, `.docx`, `.pdf`, `.xlsx` 문서를 분석·가져오기
 - **폴더 관리 모달**: Windows 탐색기 스타일, 그리드/리스트 전환
 
 ## 배포
@@ -233,6 +237,49 @@ Claude를 제외한 대부분의 외부 LLM API는 `OpenAI-compatible` 유형으
 - 응답은 `choices[0].message.content`, `choices[0].text`, `answer`, `response`, `output_text`, `content`, `message`, `result` 형태를 모두 읽습니다.
 - `apikey`처럼 Bearer가 아닌 인증은 `인증 헤더 이름`에 해당 헤더명을 넣고 API Key에 값을 넣습니다.
 - 일반 Bearer 인증은 `인증 헤더 이름`을 비워두면 됩니다.
+
+### 8-2. 폴더 파서 사용하기
+
+오른쪽 패널에서 `폴더 파서` 탭을 선택합니다.
+
+1. `로컬 폴더 경로`에 서버가 접근할 수 있는 폴더 경로를 입력합니다.
+2. 필요하면 `가져올 폴더명`을 입력합니다.
+3. `분석`을 눌러 가져올 문서와 저장될 경로를 먼저 확인합니다.
+4. 문제가 없으면 `가져오기`를 누릅니다.
+
+지원 확장자:
+
+```text
+.md, .txt, .docx, .pdf, .xlsx
+```
+
+주의:
+
+- 폴더 파서는 “백엔드 서버가 실행 중인 컴퓨터”의 경로를 읽습니다.
+- Render 같은 외부 서버에서는 내 PC의 로컬 폴더 경로를 읽을 수 없습니다.
+- Android 앱은 현재 서버 접속형 WebView 골격입니다. Android 기기 내부 폴더를 직접 가져오려면 파일 업로드 방식이 별도로 필요합니다.
+
+### 8-3. Windows / macOS / Android 앱 골격
+
+Windows 앱 골격:
+
+```text
+apps/windows/
+```
+
+macOS 앱 골격:
+
+```text
+apps/macos/
+```
+
+Android 앱 골격:
+
+```text
+apps/android/
+```
+
+현재 앱들은 로컬 또는 네트워크 서버 URL을 WebView로 여는 방식입니다. 핵심 기능은 기존 웹 UI와 백엔드 API를 그대로 사용합니다.
 
 ### 9. 서버 종료
 

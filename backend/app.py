@@ -422,6 +422,134 @@ def _doc_source_from_payload(payload: dict) -> str | None:
     return f"{customer}/{title}.md"
 
 
+IMPORT_EXTENSIONS = {".md", ".txt", ".docx", ".pdf", ".xlsx"}
+
+
+def _folder_parse_root(path_value: str) -> Path | None:
+    if not path_value:
+        return None
+    try:
+        root = Path(path_value).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return None
+    if not root.exists() or not root.is_dir():
+        return None
+    return root
+
+
+def _iter_import_files(root: Path, recursive: bool = True) -> list[Path]:
+    iterator = root.rglob("*") if recursive else root.glob("*")
+    files = [
+        path
+        for path in iterator
+        if path.is_file()
+        and path.suffix.lower() in IMPORT_EXTENSIONS
+        and not any(part.startswith(".") for part in path.relative_to(root).parts)
+    ]
+    return sorted(files, key=lambda item: item.relative_to(root).as_posix().lower())
+
+
+def _source_exists(source: str) -> bool:
+    if SUPABASE_ENABLED:
+        return _db_doc_record(source) is not None
+    path = _safe_new_doc_path(source)
+    return bool(path and path.exists())
+
+
+def _unique_import_source(source: str, overwrite: bool) -> str:
+    if overwrite or not _source_exists(source):
+        return source
+    path = PurePosixPath(source)
+    stem = path.stem
+    suffix = path.suffix or ".md"
+    parent = path.parent.as_posix()
+    for index in range(2, 1000):
+        candidate = f"{parent}/{stem}_{index}{suffix}" if parent != "." else f"{stem}_{index}{suffix}"
+        if not _source_exists(candidate):
+            return candidate
+    return source
+
+
+def _import_source_for_file(root: Path, file_path: Path, target_folder: str = "", overwrite: bool = False) -> str:
+    rel = file_path.relative_to(root)
+    parts = rel.parts
+    folder = _safe_folder_name(target_folder) if target_folder else None
+    if not folder:
+        folder = _safe_folder_name(parts[0]) if len(parts) > 1 else _safe_folder_name(root.name)
+    folder = folder or "미분류"
+    title = _slug_part(file_path.stem, "문서")
+    return _unique_import_source(f"{folder}/{title}.md", overwrite)
+
+
+def _read_import_content(file_path: Path) -> str:
+    suffix = file_path.suffix.lower()
+    raw = file_path.read_bytes()
+    if suffix == ".md":
+        return raw.decode("utf-8-sig", errors="replace")
+    if suffix == ".txt":
+        text = raw.decode("utf-8-sig", errors="replace").strip()
+        return f"# {file_path.stem}\n\n{text}\n"
+    if suffix == ".docx":
+        return _convert_docx_to_md(raw)
+    if suffix == ".pdf":
+        return _convert_pdf_to_md(raw)
+    if suffix == ".xlsx":
+        return _convert_xlsx_to_md(raw)
+    return ""
+
+
+def _folder_parse_preview(root: Path, target_folder: str = "", recursive: bool = True, overwrite: bool = False) -> list[dict]:
+    rows = []
+    for file_path in _iter_import_files(root, recursive=recursive):
+        rel = file_path.relative_to(root).as_posix()
+        source = _import_source_for_file(root, file_path, target_folder=target_folder, overwrite=overwrite)
+        rows.append(
+            {
+                "relativePath": rel,
+                "name": file_path.name,
+                "extension": file_path.suffix.lower(),
+                "size": file_path.stat().st_size,
+                "source": source,
+                "title": PurePosixPath(source).stem,
+                "exists": _source_exists(source),
+            }
+        )
+    return rows
+
+
+def _import_parsed_file(root: Path, file_path: Path, target_folder: str = "", overwrite: bool = False) -> dict:
+    source = _import_source_for_file(root, file_path, target_folder=target_folder, overwrite=overwrite)
+    safe_path = _safe_new_doc_path(source)
+    if safe_path is None:
+        return {"source": source, "status": "skipped", "error": "invalid document path"}
+    rel = safe_path.relative_to(DOCS_DIR).as_posix()
+    exists = _source_exists(rel)
+    if exists and not overwrite:
+        return {"source": rel, "status": "skipped", "error": "document already exists"}
+    content = _read_import_content(file_path).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not content:
+        return {"source": rel, "status": "skipped", "error": "empty or unsupported content"}
+    if not content.lstrip().startswith("#"):
+        content = f"# {file_path.stem}\n\n{content}"
+    content = content.rstrip() + "\n"
+    parts = PurePosixPath(rel).parts
+    customer = parts[0] if parts else ""
+    if SUPABASE_ENABLED:
+        if customer and not _db_folder_exists(customer):
+            _db_create_folder(customer)
+        if exists:
+            _db_update_doc(rel, content)
+            status = "updated"
+        else:
+            _db_create_doc(DocRecord(source=rel, title=Path(rel).stem, customer=customer, content=content))
+            status = "created"
+    else:
+        safe_path.parent.mkdir(parents=True, exist_ok=True)
+        safe_path.write_text(content, encoding="utf-8", newline="\n")
+        status = "updated" if exists else "created"
+    return {"source": rel, "status": status, "size": len(content.encode("utf-8"))}
+
+
 _SYSTEM_FILENAMES = {
     "README.md",
     "SIMPLIFY_CHANGELOG.md",
@@ -1058,6 +1186,43 @@ def create_api_app():
             content = _convert_pdf_to_md(raw)
         title = Path(filename).stem
         return {"title": title, "content": content}
+
+    @api_app.post("/api/folder/parse")
+    async def api_parse_folder(request: Request):
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return _json_response({"error": "invalid json"}, status_code=400)
+        root = _folder_parse_root(str(payload.get("path", "")).strip())
+        if root is None:
+            return _json_response({"error": "folder not found"}, status_code=404)
+        target_folder = str(payload.get("targetFolder", "")).strip()
+        recursive = bool(payload.get("recursive", True))
+        overwrite = bool(payload.get("overwrite", False))
+        do_import = bool(payload.get("import", False))
+        preview = _folder_parse_preview(root, target_folder=target_folder, recursive=recursive, overwrite=overwrite)
+        imported: list[dict] = []
+        if do_import:
+            for file_path in _iter_import_files(root, recursive=recursive):
+                imported.append(_import_parsed_file(root, file_path, target_folder=target_folder, overwrite=overwrite))
+            rag.refresh_index()
+        created = sum(1 for item in imported if item.get("status") == "created")
+        updated = sum(1 for item in imported if item.get("status") == "updated")
+        skipped = sum(1 for item in imported if item.get("status") == "skipped")
+        return {
+            "root": str(root),
+            "recursive": recursive,
+            "overwrite": overwrite,
+            "imported": do_import,
+            "summary": {
+                "files": len(preview),
+                "created": created,
+                "updated": updated,
+                "skipped": skipped,
+            },
+            "files": preview,
+            "results": imported,
+        }
 
     @api_app.delete("/api/asset")
     async def api_delete_asset(request: Request):
