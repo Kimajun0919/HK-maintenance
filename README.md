@@ -171,6 +171,27 @@ Invoke-WebRequest http://100.84.152.5:11434/v1/models -UseBasicParsing
 
 모델 목록이 JSON으로 나오면 연결은 정상입니다.
 
+### 8-1. OpenAI-compatible / Luxia 등 다른 LLM API 설정
+
+Claude를 제외한 대부분의 외부 LLM API는 `OpenAI-compatible` 유형으로 등록합니다. 공급자마다 Base URL, 인증 헤더, 채팅 경로만 다릅니다.
+
+| 공급자 예시 | Base URL | 인증 헤더 이름 | 채팅 엔드포인트 경로 |
+|---|---|---|---|
+| OpenAI | `https://api.openai.com/v1` | 비워둠 | 비워둠 |
+| Groq | `https://api.groq.com/openai/v1` | 비워둠 | 비워둠 |
+| Ollama | `http://localhost:11434/v1` 또는 Tailscale 주소 | 비워둠 | 비워둠 |
+| LM Studio | `http://localhost:1234/v1` | 비워둠 | 비워둠 |
+| Luxia | `https://bridge.luxiacloud.com/luxia/v1` | `apikey` | `/chat` |
+
+호환성 기준:
+
+- 기본 경로는 `/chat/completions`입니다.
+- 채팅 경로에 전체 URL을 넣어도 됩니다.
+- Base URL이 `/v1`로 끝나는데 경로를 `/v1/chat/completions`로 넣어도 중복 `/v1/v1`이 생기지 않도록 처리합니다.
+- 응답은 `choices[0].message.content`, `choices[0].text`, `answer`, `response`, `output_text`, `content`, `message`, `result` 형태를 모두 읽습니다.
+- `apikey`처럼 Bearer가 아닌 인증은 `인증 헤더 이름`에 해당 헤더명을 넣고 API Key에 값을 넣습니다.
+- 일반 Bearer 인증은 `인증 헤더 이름`을 비워두면 됩니다.
+
 ### 9. 서버 종료
 
 서버를 실행한 PowerShell 창에서 `Ctrl + C`를 누릅니다.

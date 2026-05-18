@@ -115,13 +115,74 @@ def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
     return f"{generated}\n\n---\n참고 문서:\n{sources}"
 
 
+def _join_api_url(base_url: str, chat_path: str) -> str:
+    base_url = (base_url or "https://api.openai.com/v1").strip().rstrip("/")
+    chat_path = (chat_path or "/chat/completions").strip() or "/chat/completions"
+    if chat_path.startswith("http://") or chat_path.startswith("https://"):
+        return chat_path
+    if not chat_path.startswith("/"):
+        chat_path = "/" + chat_path
+    if base_url.endswith("/v1") and chat_path.startswith("/v1/"):
+        chat_path = chat_path[3:]
+    return f"{base_url}{chat_path}"
+
+
+def _content_to_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value).strip()
+    if isinstance(value, list):
+        parts = [_content_to_text(item) for item in value]
+        return "\n".join(part for part in parts if part).strip()
+    if isinstance(value, dict):
+        for key in ("text", "content", "output_text", "answer", "response", "message", "result"):
+            text = _content_to_text(value.get(key))
+            if text:
+                return text
+    return ""
+
+
+def _extract_openai_compatible_text(data: dict) -> tuple[str, str, str]:
+    choices = data.get("choices", []) if isinstance(data, dict) else []
+    first_choice = choices[0] if isinstance(choices, list) and choices else {}
+    finish_reason = first_choice.get("finish_reason", "") if isinstance(first_choice, dict) else ""
+
+    if isinstance(first_choice, dict):
+        for key in ("message", "delta"):
+            text = _content_to_text(first_choice.get(key))
+            if text:
+                return text, "", finish_reason
+        for key in ("text", "content", "answer", "response", "message"):
+            text = _content_to_text(first_choice.get(key))
+            if text:
+                return text, "", finish_reason
+
+    if isinstance(data, dict):
+        for key in ("output_text", "answer", "response", "content", "message", "result", "text"):
+            text = _content_to_text(data.get(key))
+            if text:
+                return text, "", finish_reason
+
+    reasoning = ""
+    if isinstance(first_choice, dict):
+        message = first_choice.get("message", {})
+        if isinstance(message, dict):
+            reasoning = _content_to_text(message.get("reasoning") or message.get("reasoning_content"))
+        if not reasoning:
+            reasoning = _content_to_text(first_choice.get("reasoning") or first_choice.get("reasoning_content"))
+    if not reasoning and isinstance(data, dict):
+        reasoning = _content_to_text(data.get("reasoning") or data.get("reasoning_content"))
+    return "", reasoning, finish_reason
+
+
 def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str, model: str,
                              auth_header: str = "", chat_path: str = "") -> str:
     base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
     model = (model or "gpt-4o-mini").strip()
-    chat_path = (chat_path or "/chat/completions").strip()
-    if not chat_path.startswith("/"):
-        chat_path = "/" + chat_path
+    request_url = _join_api_url(base_url, chat_path)
 
     results, context = rag.retrieve_for_llm(query, top_k)
     if not context:
@@ -129,9 +190,13 @@ def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str
 
     sources = "\n".join(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}" for chunk, score in results)
     prompt = rag._build_llm_user_prompt(query, context)
+    model_lower = model.lower()
+    max_tokens = MAX_NEW_TOKENS
+    if any(name in model_lower for name in ("glm", "deepseek-r1", "r1")):
+        max_tokens = max(max_tokens, 2048)
     payload = {
         "model": model,
-        "max_tokens": MAX_NEW_TOKENS,
+        "max_tokens": max_tokens,
         "messages": [
             {"role": "system", "content": rag.SYSTEM_INSTRUCTION_KO},
             {"role": "user", "content": prompt},
@@ -141,11 +206,12 @@ def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str
     if api_key.strip():
         key = api_key.strip()
         if auth_header.strip():
-            headers[auth_header.strip().lower()] = key
+            header_name = auth_header.strip().lower()
+            headers[header_name] = f"Bearer {key}" if header_name == "authorization" and not key.lower().startswith("bearer ") else key
         else:
             headers["authorization"] = f"Bearer {key}"
     request = urllib.request.Request(
-        f"{base_url}{chat_path}",
+        request_url,
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST",
@@ -159,10 +225,18 @@ def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str
     except Exception as exc:
         return f"API 호출 실패: {exc}"
 
-    choices = data.get("choices", [])
-    generated = choices[0].get("message", {}).get("content", "").strip() if choices else ""
+    generated, reasoning, finish_reason = _extract_openai_compatible_text(data)
     if not generated:
-        generated = rag.source_based_answer(query, results)
+        if reasoning:
+            generated = (
+                "모델이 최종 답변(content)을 비워두고 추론(reasoning)만 반환했습니다.\n\n"
+                f"- 모델: `{model}`\n"
+                f"- 종료 사유: `{finish_reason or 'unknown'}`\n"
+                "- 조치: `qwen2.5:7b`, `hermes3:latest`처럼 content를 바로 반환하는 모델을 쓰거나, "
+                "`MAX_NEW_TOKENS`를 더 크게 설정한 뒤 서버를 재시작해 주세요."
+            )
+        else:
+            generated = rag.source_based_answer(query, results)
     return f"{generated}\n\n---\n참고 문서:\n{sources}"
 
 

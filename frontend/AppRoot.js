@@ -1308,7 +1308,7 @@ export function App() {
                     apForm.type === "openai" && h("label", null,
                       "채팅 엔드포인트 경로 ",
                       h("span", { className: "ap-field-hint" }, "(기본: /chat/completions)"),
-                      h("input", { value: apForm.chatPath, placeholder: "예: /chat  또는 /v1/chat/completions", onChange: (e) => setApForm((f) => ({ ...f, chatPath: e.target.value })) })
+                      h("input", { value: apForm.chatPath, placeholder: "예: /chat, /chat/completions, 전체 URL도 가능", onChange: (e) => setApForm((f) => ({ ...f, chatPath: e.target.value })) })
                     ),
                     h("label", null, "모델",
                       h("input", { value: apForm.model, placeholder: apForm.type === "claude" ? "claude-sonnet-4-5" : "gpt-4o-mini", onChange: (e) => setApForm((f) => ({ ...f, model: e.target.value })) })
@@ -1316,7 +1316,7 @@ export function App() {
                     apForm.type === "openai" && h("p", { className: "ap-hint" },
                       "💡 OpenAI: api.openai.com/v1 | Groq: api.groq.com/openai/v1 | Ollama: localhost:11434/v1 | LM Studio: localhost:1234/v1",
                       h("br", null),
-                      "💡 Luxia: bridge.luxiacloud.com/luxia/v1 — 헤더: apikey, 경로: /chat"
+                      "💡 Luxia 등 커스텀 API: Base URL + 경로(/chat 등) + 필요한 헤더명(apikey 등)을 맞춰 입력"
                     ),
                     h("div", { className: "ap-form-actions" },
                       h("button", { type: "button", onClick: () => setApEditId(null) }, "취소"),

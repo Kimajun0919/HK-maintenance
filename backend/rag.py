@@ -764,8 +764,12 @@ def is_noise_title_for_answer(query: str, title: str) -> bool:
     title_compact = title.replace(" ", "")
     noise_titles = (
         "문서개요",
+        "문서정보",
         "핵심요약",
+        "요약",
+        "본문",
         "상세내용",
+        "정리검증",
         "작업절차",
         "주의사항",
         "오류및대응방법",
@@ -780,6 +784,24 @@ def is_noise_title_for_answer(query: str, title: str) -> bool:
     if "보고서" in title_compact and not any(t in compact_query for t in ("보고서", "월간", "내역", "점검")):
         return True
     return False
+
+
+def is_low_value_context_title(title: str) -> bool:
+    title_compact = title.replace(" ", "")
+    low_value_titles = (
+        "문서개요",
+        "문서정보",
+        "핵심요약",
+        "요약",
+        "본문",
+        "정리검증",
+        "상세내용",
+        "원본보존내용",
+        "확인필요사항",
+        "기존정리본문서",
+        "HK매뉴얼에서확인된고객사별정보",
+    )
+    return any(noise in title_compact for noise in low_value_titles)
 
 
 def extract_readable_bullets(text: str) -> list[str]:
@@ -847,7 +869,19 @@ SYSTEM_INSTRUCTION_KO = (
 
 
 def _build_llm_user_prompt(query: str, context: str) -> str:
-    return f"질문:\n{query}\n\n문서 근거:\n{context}\n\n한국어로 답변하세요."
+    return (
+        "질문:\n"
+        f"{query}\n\n"
+        "문서 근거:\n"
+        f"{context}\n\n"
+        "답변 지침:\n"
+        "- 먼저 질문에 대한 결론을 자연스러운 한국어로 답하세요.\n"
+        "- 단순히 참고 문서 목록을 나열하지 말고, 문서 내용을 업무자가 이해하기 쉽게 풀어 설명하세요.\n"
+        "- 문서에 있는 사실만 사용하세요. 문서에 없는 일반 지식, 위치, 기능, 비용, 계정, URL은 만들지 마세요.\n"
+        "- 문서에 정보가 부족하면 무엇이 부족한지 분명히 말하고, 확인된 정보만 정리하세요.\n"
+        "- 필요하면 마지막에 근거 파일명이나 섹션명을 짧게 덧붙이세요.\n"
+        "- 최종 답변만 작성하고 추론 과정은 출력하지 마세요."
+    )
 
 
 # ──────────────────────────────────────────────
@@ -1028,6 +1062,15 @@ def retrieve_for_llm(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]],
         )
 
     results = retriever.search(query, top_k=effective_top_k, candidate_k=candidate_k, debug=_RAG_DEBUG)
+    focused_results = [(chunk, score) for chunk, score in results if not is_low_value_context_title(chunk.title)]
+    if focused_results:
+        results = focused_results
+    if results:
+        best_score = results[0][1]
+        score_floor = best_score * 0.25
+        close_results = [(chunk, score) for chunk, score in results if score >= score_floor]
+        if close_results:
+            results = close_results
     context = build_compact_context(query, results, max_chars=max_chars, snippets_per_chunk=snippets_per_chunk)
 
     if _RAG_DEBUG:

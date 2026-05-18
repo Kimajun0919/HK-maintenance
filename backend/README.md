@@ -77,6 +77,8 @@ docker run -p 8080:8080 \
 | OpenAI-compatible | OpenAI, Groq, Ollama, LM Studio, Together AI |
 | 커스텀 헤더 | Luxia (`apikey: {key}`, 경로: `/chat`) |
 
+OpenAI-compatible 응답 파서는 `choices[0].message.content` 외에도 `choices[0].text`, `answer`, `response`, `output_text`, `content`, `message`, `result` 형태를 처리합니다. Base URL이 `/v1`로 끝나고 경로도 `/v1/...`로 들어온 경우 중복 `/v1/v1`은 자동 보정합니다.
+
 ## 주요 API
 
 | 메서드 | 경로 | 기능 |
