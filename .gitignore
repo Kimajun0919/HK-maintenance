@@ -1,4 +1,5 @@
 hf_space_bundle/
+dist/
 backend/.venv/
 **/__pycache__/
 *.pyc

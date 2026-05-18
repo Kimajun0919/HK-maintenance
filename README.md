@@ -49,6 +49,48 @@ python scripts/deploy_hf_space.py
 
 HuggingFace Space 시크릿에 `SUPABASE_DB_URL`, `SUPABASE_SEED_FROM_FILES=0` 추가 필요.
 
+### 앱 링크 배포
+
+스토어에 올리지 않고 링크로 배포하려면 GitHub Releases 또는 사내 파일 서버에 산출물을 올립니다.
+
+로컬 실행 번들 zip 생성:
+
+```powershell
+.\scripts\package-local.ps1 -Version manual
+```
+
+PowerShell 실행 정책으로 막히면:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version manual
+```
+
+Windows 앱 zip 생성:
+
+```powershell
+.\scripts\build-windows-app.ps1 -Version manual
+```
+
+macOS 앱 런처 zip 생성은 macOS에서 실행합니다.
+
+```bash
+bash scripts/build-macos-launcher.sh manual
+```
+
+Android APK 생성은 Android SDK와 Gradle이 있는 환경에서 실행합니다.
+
+```bash
+bash scripts/build-android-apk.sh manual
+```
+
+GitHub Actions에서 자동 패키징:
+
+```text
+.github/workflows/package-apps.yml
+```
+
+태그를 `v1.0.0`처럼 푸시하면 Release에 zip/apk가 첨부됩니다. 자세한 링크 배포 절차는 `release/README.md`를 참고하세요.
+
 ## 로컬 실행
 
 ### 더블클릭으로 실행하기
