@@ -910,19 +910,13 @@ def create_api_app():
 
     @api_app.get("/api/meta")
     def api_meta():
-        meta_error = ""
-        try:
-            doc_count = len(docs_index())
-        except Exception as exc:
-            doc_count = 0
-            meta_error = str(exc)
-        try:
-            asset_count = _db_asset_count() if SUPABASE_ENABLED else len(_file_asset_records())
-            asset_total_bytes = _db_asset_total_bytes() if SUPABASE_ENABLED else 0
-        except Exception as exc:
-            asset_count = 0
-            asset_total_bytes = 0
-            meta_error = meta_error or str(exc)
+        # Keep metadata lightweight: this endpoint is called during initial UI load.
+        # Avoid extra Supabase aggregate connections here; slow pooler responses should
+        # not block search/chat from becoming usable.
+        document_ids = {chunk.document_id or chunk.source for chunk in rag.chunks}
+        doc_count = len(document_ids)
+        asset_count = 0 if SUPABASE_ENABLED else len(_file_asset_records())
+        asset_total_bytes = 0
         return {
             "docsDir": str(DOCS_DIR),
             "storage": "supabase" if SUPABASE_ENABLED else "files",
@@ -934,7 +928,7 @@ def create_api_app():
             "llm": MODEL_NAME if USE_LLM else "disabled",
             "claudeDefaultModel": DEFAULT_CLAUDE_MODEL,
             "ragInitError": getattr(rag, "_RAG_INIT_ERROR", ""),
-            "metaError": meta_error,
+            "metaError": "",
         }
 
     @api_app.get("/api/docs")
