@@ -1278,6 +1278,40 @@ def is_noise_title_for_answer(query: str, title: str) -> bool:
     return False
 
 
+def clean_source_based_answer(query: str, results: list[tuple[Chunk, float]]) -> str:
+    if not results:
+        return "관련 문서를 찾지 못했습니다. 고객사명이나 기능명을 더 구체적으로 입력해 주세요."
+
+    best_source = results[0][0].source
+    lines = [
+        "## 검색 기반 답변",
+        "",
+        f"질문과 가장 관련도가 높은 문서는 `{best_source}`입니다.",
+        "",
+        "### 핵심 근거",
+    ]
+    for idx, (chunk, score) in enumerate(results[:3], 1):
+        lines.append(f"{idx}. `{chunk.title}`")
+        bullets = extract_readable_bullets(chunk.text)
+        if bullets:
+            for bullet in bullets[:6]:
+                lines.append(f"   - {bullet}")
+        else:
+            snippet = re.sub(r"\s+", " ", chunk.text).strip()[:220]
+            if snippet:
+                lines.append(f"   - {snippet}")
+
+    lines.extend(["", "### 참고 문서"])
+    seen: set[str] = set()
+    for chunk, score in results:
+        key = f"{chunk.source}|{chunk.title}"
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}")
+    return "\n".join(lines)
+
+
 def is_low_value_context_title(title: str) -> bool:
     title_compact = title.replace(" ", "")
     low_value_titles = (
@@ -1746,7 +1780,7 @@ def immediate_answer_with_sources(query: str, top_k: int) -> tuple[str, list[tup
     if not context:
         return "관련 문서를 찾지 못했습니다. 고객사명, 오류명, 서버/계정/작업명을 포함해 다시 질문해 주세요.", results
 
-    return source_based_answer(query, results), results
+    return clean_source_based_answer(query, results), results
 
 
 def llm_answer_with_sources(query: str, top_k: int) -> tuple[str, list[tuple[Chunk, float]]]:
@@ -1758,7 +1792,7 @@ def llm_answer_with_sources(query: str, top_k: int) -> tuple[str, list[tuple[Chu
     llm = get_llm()
     generated = llm.generate(prompt)
     if not generated:
-        generated = source_based_answer(query, results)
+        generated = clean_source_based_answer(query, results)
 
     sources = "\n".join(
         f"- `{chunk.source}` / {chunk.title} / score={score:.3f}"
@@ -1776,7 +1810,7 @@ def immediate_answer(query: str, top_k: int) -> str:
     if not context:
         return "관련 문서를 찾지 못했습니다. 고객사명, 오류명, 서버/계정/작업명을 포함해 다시 질문해 주세요."
 
-    return source_based_answer(query, results)
+    return clean_source_based_answer(query, results)
 
 
 def llm_answer(query: str, top_k: int) -> str:
@@ -1788,7 +1822,7 @@ def llm_answer(query: str, top_k: int) -> str:
     llm = get_llm()
     generated = llm.generate(prompt)
     if not generated:
-        generated = source_based_answer(query, results)
+        generated = clean_source_based_answer(query, results)
 
     sources = "\n".join(
         f"- `{chunk.source}` / {chunk.title} / score={score:.3f}"

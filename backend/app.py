@@ -116,7 +116,7 @@ def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
             parts.append(str(block.get("text", "")).strip())
     generated = "\n\n".join(part for part in parts if part)
     if not generated:
-        generated = rag.source_based_answer(query, results)
+        generated = rag.clean_source_based_answer(query, results)
     return f"{generated}\n\n---\n참고 문서:\n{sources}"
 
 
@@ -164,7 +164,7 @@ def claude_answer_with_sources(query: str, top_k: int, api_key: str, model: str)
             parts.append(str(block.get("text", "")).strip())
     generated = "\n\n".join(part for part in parts if part)
     if not generated:
-        generated = rag.source_based_answer(query, results)
+        generated = rag.clean_source_based_answer(query, results)
     return f"{generated}\n\n---\n참고 문서:\n{sources}", results
 
 
@@ -296,7 +296,7 @@ def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str
                 "`MAX_NEW_TOKENS`를 더 크게 설정한 뒤 서버를 재시작해 주세요."
             )
         else:
-            generated = rag.source_based_answer(query, results)
+            generated = rag.clean_source_based_answer(query, results)
     return f"{generated}\n\n---\n참고 문서:\n{sources}"
 
 
@@ -359,7 +359,7 @@ def openai_compatible_answer_with_sources(query: str, top_k: int, api_key: str, 
                 "`MAX_NEW_TOKENS`를 더 크게 설정한 뒤 서버를 재시작해 주세요."
             )
         else:
-            generated = rag.source_based_answer(query, results)
+            generated = rag.clean_source_based_answer(query, results)
     return f"{generated}\n\n---\n참고 문서:\n{sources}", results
 
 
@@ -1460,13 +1460,48 @@ def create_api_app():
 
     @api_app.get("/api/search")
     def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10), debug: bool = Query(False)):
-        payload = rag.search_documents(q, top_k, debug=debug)
-        results = payload["results"] if debug else payload
+        if debug:
+            payload = rag.search_documents(q, top_k, debug=True)
+            results = payload["results"]
+            answer = rag.clean_source_based_answer(
+                q,
+                [
+                    (
+                        rag.Chunk(
+                            text=item.get("matched_text", ""),
+                            source=item.get("source", ""),
+                            title=item.get("title", ""),
+                            document_id=item.get("document_id"),
+                            heading=item.get("matched_heading"),
+                            filename=item.get("filename"),
+                            folder=item.get("folder"),
+                        ),
+                        float(item.get("score", 0.0)),
+                    )
+                    for item in results
+                ],
+            ) if results else "관련 문서를 찾지 못했습니다."
+            return {
+                "query": q,
+                "answer": answer,
+                "results": results,
+                "debug": payload["debug"],
+            }
+        chunk_results, context = rag.retrieve(q, top_k)
+        answer = rag.clean_source_based_answer(q, chunk_results) if context else "관련 문서를 찾지 못했습니다."
+        results = [
+            {
+                "source": chunk.source,
+                "title": chunk.title,
+                "score": round(score, 4),
+                "snippet": re.sub(r"\s+", " ", chunk.text).strip()[:700],
+            }
+            for chunk, score in chunk_results
+        ]
         return {
             "query": q,
-            "answer": "",
+            "answer": answer,
             "results": results,
-            **({"debug": payload["debug"]} if debug else {}),
         }
 
     @api_app.post("/api/search-index/rebuild")
