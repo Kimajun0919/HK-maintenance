@@ -1518,8 +1518,15 @@ def reset_settings() -> dict:
 # Global index
 # ──────────────────────────────────────────────
 
-_init_supabase_storage()
-chunks = load_chunks()
+_RAG_INIT_ERROR = ""
+try:
+    _init_supabase_storage()
+    chunks = load_chunks()
+except Exception as exc:
+    _RAG_INIT_ERROR = str(exc)
+    if _RAG_DEBUG:
+        print(f"[RAG_DEBUG] initial index load failed: {exc}")
+    chunks = []
 retriever = Retriever(chunks)
 load_settings()  # apply settings.json after retriever is ready
 

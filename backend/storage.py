@@ -68,7 +68,7 @@ def _db_connect():
         import psycopg
     except ModuleNotFoundError as exc:
         raise RuntimeError("Supabase DB storage requires `psycopg[binary]`. Run pip install -r requirements.txt.") from exc
-    return psycopg.connect(SUPABASE_DB_URL, autocommit=True)
+    return psycopg.connect(SUPABASE_DB_URL, autocommit=True, connect_timeout=10)
 
 
 def _vector_literal(values: list[float]) -> str:
