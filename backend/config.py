@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -31,10 +30,6 @@ ASSET_MAX_SIZE_MB = float(os.getenv("ASSET_MAX_SIZE_MB", "2"))
 ASSET_MAX_SIZE_BYTES = int(ASSET_MAX_SIZE_MB * 1024 * 1024)
 APP_HOST = os.getenv("APP_HOST", "127.0.0.1").strip() or "127.0.0.1"
 APP_PORT = int(os.getenv("APP_PORT", "7860"))
-APP_AUTH_TOKEN = os.getenv("APP_AUTH_TOKEN", "").strip()
-APP_ALLOW_UNAUTH_LOCAL = os.getenv("APP_ALLOW_UNAUTH_LOCAL", "1") != "0"
-APP_AUTH_REQUIRED = os.getenv("APP_AUTH_REQUIRED", "0") == "1"
-APP_LOCAL_SESSION_TOKEN = secrets.token_urlsafe(24)
 APP_ALLOW_REMOTE_FOLDER_PARSE = os.getenv("APP_ALLOW_REMOTE_FOLDER_PARSE", "0") == "1"
 SUPABASE_DOCS_TABLE = os.getenv("SUPABASE_DOCS_TABLE", "maintenance_docs")
 SUPABASE_ASSETS_TABLE = os.getenv("SUPABASE_ASSETS_TABLE", f"{SUPABASE_DOCS_TABLE}_assets")

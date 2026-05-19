@@ -3,7 +3,6 @@
 ## Security Defaults
 
 - Local execution binds to `127.0.0.1` by default. Use `APP_HOST=0.0.0.0` only when another device must connect.
-- If the server is reachable from another machine or the internet, set `APP_AUTH_TOKEN` and use that token in the browser prompt.
 - Render must bind to `0.0.0.0`; `render.yaml` sets `APP_HOST=0.0.0.0` and `APP_PORT=8080`.
 - `/api/folder/parse` is local-only by default. Remote folder parsing requires `APP_ALLOW_REMOTE_FOLDER_PARSE=1`.
 - Release zip packaging redacts document lines that look like credentials unless `-SkipRedaction` is passed.
