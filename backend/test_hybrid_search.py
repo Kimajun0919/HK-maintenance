@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 import sys
 import os
+import json
+from unittest.mock import patch
 
 os.environ.setdefault("EMBEDDING_BACKEND", "hash")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -114,6 +116,116 @@ class HybridSearchTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["title"], "냉난방기 필터 청소")
         self.assertEqual(len(results[0]["related_chunks"]), 1)
+
+
+    def test_debug_search_includes_ranking_signals(self) -> None:
+        old_retriever = rag.retriever
+        try:
+            rag.retriever = self.retriever
+            payload = rag.search_documents("as 접수", top_k=3, debug=True)
+        finally:
+            rag.retriever = old_retriever
+        self.assertIn("debug", payload)
+        self.assertIn("results", payload)
+        self.assertEqual(payload["debug"]["original_query"], "as 접수")
+        self.assertIn("normalized_query", payload["debug"])
+        self.assertGreater(payload["debug"]["candidate_count"], 0)
+        score_detail = payload["results"][0]["score_detail"]
+        for key in ("bm25", "ngram", "embedding", "field_boost", "exact_match_boost", "recency_boost"):
+            self.assertIn(key, score_detail)
+
+    def test_embedding_failure_falls_back_to_lexical_search(self) -> None:
+        class BrokenModel:
+            def encode(self, *_args, **_kwargs):
+                raise RuntimeError("embedding failed")
+
+        old_backend = os.environ.get("EMBEDDING_BACKEND")
+        os.environ["EMBEDDING_BACKEND"] = "sentence-transformers"
+        try:
+            rag.EmbeddingStore._model_failed = False
+            with patch.object(rag.EmbeddingStore, "_load_model", return_value=BrokenModel()):
+                retriever = rag.Retriever(
+                    [make_chunk("service/as.md", "A/S 처리 내역", "수리 접수", "as 접수 점검 요청")]
+                )
+                results = retriever.search("as 접수", top_k=1)
+        finally:
+            if old_backend is None:
+                os.environ.pop("EMBEDDING_BACKEND", None)
+            else:
+                os.environ["EMBEDDING_BACKEND"] = old_backend
+            rag.EmbeddingStore._model_failed = False
+        self.assertTrue(results)
+        detail = retriever.last_score_details[results[0][0].chunk_id]
+        self.assertEqual(detail["embedding"], 0.0)
+
+    def test_pgvector_candidates_are_merged_with_lexical_candidates(self) -> None:
+        first = make_chunk("docs/lexical.md", "Lexical", "Lexical", "alpha alpha alpha")
+        second = make_chunk("docs/vector.md", "Vector", "Vector", "semantic-only content")
+        retriever = rag.Retriever([first, second])
+        rag._SETTINGS = rag._deep_merge(
+            rag.copy.deepcopy(rag._SETTINGS),
+            {
+                "search": {
+                    "candidate_limits": {"bm25": 1, "ngram": 1, "vector": 1, "merged_max": 2},
+                    "weights": {
+                        "bm25": 0.35,
+                        "ngram": 0.15,
+                        "embedding": 0.35,
+                        "field_boost": 0.10,
+                        "exact_match_boost": 0.05,
+                        "recency_boost_max": 0.05,
+                    },
+                }
+            },
+        )
+        with patch.object(rag, "SUPABASE_ENABLED", True), patch.object(
+            rag, "_db_vector_search_chunks", return_value=[{"chunk_id": second.chunk_id, "similarity": 0.99}]
+        ):
+            results = retriever.search("alpha", top_k=2, debug=True)
+        result_ids = [chunk.chunk_id for chunk, _score in results]
+        self.assertIn(second.chunk_id, result_ids)
+        self.assertEqual(retriever.last_debug["vector_candidate_count"], 1)
+        detail = retriever.last_score_details[second.chunk_id]
+        self.assertTrue(detail["sources"]["vector"])
+        self.assertFalse(detail["sources"]["bm25"])
+        self.assertEqual(detail["embedding"], 0.99)
+
+    def test_sync_vector_index_upserts_only_changed_chunks_and_deletes_stale(self) -> None:
+        local_chunks = [
+            make_chunk("facility/a.md", "A", "A1", "alpha body"),
+            make_chunk("facility/b.md", "B", "B1", "beta body"),
+        ]
+        retriever = rag.Retriever(local_chunks)
+        first_hash = retriever.embedding_store.text_hash(
+            "\n".join([local_chunks[0].title, local_chunks[0].heading or "", local_chunks[0].source, local_chunks[0].text])
+        )
+        old_chunks = rag.chunks
+        old_retriever = rag.retriever
+        try:
+            rag.chunks = local_chunks
+            rag.retriever = retriever
+            with patch.object(rag, "SUPABASE_ENABLED", True), \
+                 patch.object(rag, "_db_existing_chunk_hashes", return_value={local_chunks[0].chunk_id: first_hash}), \
+                 patch.object(rag, "_db_delete_stale_chunks", return_value=1) as delete_stale, \
+                 patch.object(rag, "_db_upsert_search_chunks", return_value=1) as upsert:
+                result = rag.sync_vector_index()
+        finally:
+            rag.chunks = old_chunks
+            rag.retriever = old_retriever
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["upserted"], 1)
+        self.assertEqual(result["stale_deleted"], 1)
+        delete_stale.assert_called_once_with([chunk.chunk_id for chunk in local_chunks])
+        self.assertEqual(len(upsert.call_args.args[0]), 1)
+        self.assertEqual(upsert.call_args.args[0][0]["chunk_id"], local_chunks[1].chunk_id)
+
+    def test_quality_case_set_has_at_least_30_queries(self) -> None:
+        cases_path = Path(__file__).with_name("search_quality_cases.json")
+        cases = json.loads(cases_path.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(cases), 30)
+        for case in cases:
+            self.assertIn("query", case)
+            self.assertTrue(case.get("expected_keywords") or case.get("expected_document_ids"))
 
 
 if __name__ == "__main__":

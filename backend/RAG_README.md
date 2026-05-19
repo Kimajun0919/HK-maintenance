@@ -390,6 +390,20 @@ flowchart TB
 python -m unittest backend.test_hybrid_search
 ```
 
+검색 품질 평가는 [search_quality_cases.json](./search_quality_cases.json)의 30개 유지보수 쿼리를 사용한다.
+
+```powershell
+python backend/eval_hybrid_search.py
+```
+
+API 디버깅은 다음처럼 켤 수 있다.
+
+```txt
+GET /api/search?q=물이 새요&debug=true
+```
+
+debug 응답에는 정규화 검색어, 확장어, 후보 청크 수, 임베딩 사용 여부, 최종 점수와 세부 점수가 포함된다.
+
 ## 15. 한계와 확장 방향
 
 현재 구조는 실제 sentence-transformers 임베딩을 사용하지만, 검색 후보 생성은 여전히 인메모리 BM25 + n-gram 기반이다. Supabase의 벡터 테이블은 청크 임베딩 영속화와 운영 재사용을 담당한다.

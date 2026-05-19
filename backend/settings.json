@@ -9,11 +9,17 @@
   "search": {
     "weights": {
       "bm25": 0.35,
-      "ngram": 0.2,
-      "embedding": 0.3,
+      "ngram": 0.15,
+      "embedding": 0.35,
       "field_boost": 0.1,
       "exact_match_boost": 0.05,
       "recency_boost_max": 0.05
+    },
+    "candidate_limits": {
+      "bm25": 50,
+      "ngram": 50,
+      "vector": 50,
+      "merged_max": 100
     },
     "candidate_limit": 50,
     "field_boost_cap": 0.35,

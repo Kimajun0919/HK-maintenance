@@ -1328,12 +1328,14 @@ def create_api_app():
         return {"ok": True, "type": item_type, "key": key}
 
     @api_app.get("/api/search")
-    def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10)):
-        results = rag.search_documents(q, top_k)
+    def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10), debug: bool = Query(False)):
+        payload = rag.search_documents(q, top_k, debug=debug)
+        results = payload["results"] if debug else payload
         return {
             "query": q,
             "answer": "",
             "results": results,
+            **({"debug": payload["debug"]} if debug else {}),
         }
 
     @api_app.post("/api/search-index/rebuild")

@@ -532,6 +532,30 @@ def _db_upsert_search_chunks(rows: list[dict]) -> int:
     return len(rows)
 
 
+def _db_vector_search_chunks(query_embedding: list[float], limit: int) -> list[dict]:
+    """Return nearest chunk ids from the pgvector index using cosine distance."""
+    if not query_embedding or limit <= 0:
+        return []
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select chunk_id, 1 - (embedding <=> %s::vector) as similarity
+                from {SUPABASE_CHUNKS_TABLE}
+                order by embedding <=> %s::vector
+                limit %s
+                """,
+                (_vector_literal(query_embedding), _vector_literal(query_embedding), int(limit)),
+            )
+            return [
+                {
+                    "chunk_id": row[0],
+                    "similarity": max(0.0, min(1.0, float(row[1] or 0.0))),
+                }
+                for row in cur.fetchall()
+            ]
+
+
 def _extract_asset_refs(source: str, content: str) -> list[str]:
     folder = PurePosixPath(source).parent.as_posix()
     paths = []

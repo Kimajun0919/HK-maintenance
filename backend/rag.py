@@ -12,7 +12,14 @@ from pathlib import Path
 
 from config import DOCS_DIR, EMBEDDING_DIM, EMBEDDING_MODEL_NAME, MAX_NEW_TOKENS, MODEL_NAME, SUPABASE_ENABLED, USE_LLM
 from models import Chunk
-from storage import _db_delete_stale_chunks, _db_existing_chunk_hashes, _db_upsert_search_chunks, _doc_records, _init_supabase_storage
+from storage import (
+    _db_delete_stale_chunks,
+    _db_existing_chunk_hashes,
+    _db_upsert_search_chunks,
+    _db_vector_search_chunks,
+    _doc_records,
+    _init_supabase_storage,
+)
 
 # ──────────────────────────────────────────────
 # Query expansion tables (unchanged)
@@ -451,20 +458,28 @@ class EmbeddingStore:
         return hashlib.sha256(f"{signature}\n{normalize_search_text(text)}".encode("utf-8")).hexdigest()
 
     def embed_text(self, text: str) -> list[float]:
+        if os.getenv("EMBEDDING_BACKEND", "sentence-transformers").lower() in {"hash", "fallback"}:
+            return self._hash_embedding(text)
         model = self._load_model()
         if model is not None:
-            vector = model.encode(
-                normalize_search_text(text),
-                normalize_embeddings=True,
-                show_progress_bar=False,
-            )
-            values = [float(value) for value in vector.tolist()]
-            if len(values) == self.dim:
-                return values
-            if len(values) > self.dim:
-                return values[: self.dim]
-            return values + [0.0] * (self.dim - len(values))
+            try:
+                vector = model.encode(
+                    normalize_search_text(text),
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                )
+                values = [float(value) for value in vector.tolist()]
+                if len(values) == self.dim:
+                    return values
+                if len(values) > self.dim:
+                    return values[: self.dim]
+                return values + [0.0] * (self.dim - len(values))
+            except Exception:
+                type(self)._model_failed = True
+                return []
+        return []
 
+    def _hash_embedding(self, text: str) -> list[float]:
         vector = [0.0] * self.dim
         tokens = bm25_tokens(text) + list(char_ngram_tokens(text))
         for token in tokens:
@@ -518,7 +533,9 @@ class Retriever:
         self.embedding_store = EmbeddingStore()
         self.embeddings = [self.embedding_store.get_chunk_embedding(c) for c in chunks]
         self.embedding_store.save()
+        self.chunk_index_by_id = {chunk.chunk_id: idx for idx, chunk in enumerate(chunks) if chunk.chunk_id}
         self.last_score_details: dict[str, dict] = {}
+        self.last_debug: dict = {}
 
         # Legacy cosine index — kept for fallback if BM25 raises unexpectedly
         self.vectors = [self._legacy_vector(f"{c.title}\n{c.source}\n{c.text}") for c in chunks]
@@ -638,8 +655,16 @@ class Retriever:
         search_cfg = _SETTINGS.get("search", _DEFAULT_SETTINGS["search"])
         weights = search_cfg.get("weights", _DEFAULT_SETTINGS["search"]["weights"])
         field_cfg = search_cfg.get("field_boosts", _DEFAULT_SETTINGS["search"]["field_boosts"])
-        candidate_k = int(search_cfg.get("candidate_limit", candidate_k) or candidate_k)
-        candidate_k = max(1, min(candidate_k, len(self.chunks)))
+        candidate_limits = search_cfg.get("candidate_limits", _DEFAULT_SETTINGS["search"].get("candidate_limits", {}))
+        legacy_candidate_limit = int(search_cfg.get("candidate_limit", candidate_k) or candidate_k)
+        bm25_limit = int(candidate_limits.get("bm25", legacy_candidate_limit) or legacy_candidate_limit)
+        ngram_limit = int(candidate_limits.get("ngram", legacy_candidate_limit) or legacy_candidate_limit)
+        vector_limit = int(candidate_limits.get("vector", legacy_candidate_limit) or legacy_candidate_limit)
+        merged_max = int(candidate_limits.get("merged_max", max(candidate_k, legacy_candidate_limit)) or candidate_k)
+        bm25_limit = max(1, min(bm25_limit, len(self.chunks)))
+        ngram_limit = max(1, min(ngram_limit, len(self.chunks)))
+        vector_limit = max(0, vector_limit)
+        merged_max = max(1, min(merged_max, len(self.chunks)))
 
         query_info = expand_query_terms(query)
         query_text = " ".join([query_info["normalized_query"]] + [item["term"] for item in query_info["expanded_terms"]])
@@ -648,6 +673,7 @@ class Retriever:
         expanded_terms = {item["term"] for item in query_info["expanded_terms"]}
         query_ngrams = char_ngram_tokens(query_text)
         query_embedding = self.embedding_store.embed_text(query_text)
+        embedding_available = bool(query_embedding)
         normalized_query = query_info["normalized_query"]
         compact_query = compact_search_text(query)
 
@@ -659,20 +685,70 @@ class Retriever:
         if max_bm25 <= 0:
             max_bm25 = 1.0
         ngram_scores = [jaccard_similarity(query_ngrams, grams) for grams in self.ngram_sets]
+        bm25_indices = sorted(range(len(self.chunks)), key=lambda i: bm25_scores[i], reverse=True)[:bm25_limit]
+        ngram_indices = sorted(range(len(self.chunks)), key=lambda i: ngram_scores[i], reverse=True)[:ngram_limit]
+
+        vector_scores_by_id: dict[str, float] = {}
+        vector_indices: list[int] = []
+        vector_error: str | None = None
+        if SUPABASE_ENABLED and embedding_available and vector_limit > 0:
+            try:
+                for row in _db_vector_search_chunks(query_embedding, vector_limit):
+                    chunk_id = row.get("chunk_id")
+                    if not chunk_id:
+                        continue
+                    vector_scores_by_id[chunk_id] = float(row.get("similarity", 0.0))
+                    idx = self.chunk_index_by_id.get(chunk_id)
+                    if idx is not None:
+                        vector_indices.append(idx)
+            except Exception as exc:
+                vector_error = str(exc)
+
+        sources_by_idx: dict[int, set[str]] = {}
+        for source_name, indices in (("bm25", bm25_indices), ("ngram", ngram_indices), ("vector", vector_indices)):
+            for idx in indices:
+                sources_by_idx.setdefault(idx, set()).add(source_name)
+
         candidate_indices = sorted(
-            range(len(self.chunks)),
-            key=lambda i: (bm25_scores[i] / max_bm25) * 0.65 + ngram_scores[i] * 0.35,
+            sources_by_idx,
+            key=lambda i: (
+                (bm25_scores[i] / max_bm25) * float(weights.get("bm25", 0.35))
+                + ngram_scores[i] * float(weights.get("ngram", 0.15))
+                + vector_scores_by_id.get(self.chunks[i].chunk_id or "", 0.0) * float(weights.get("embedding", 0.35))
+            ),
             reverse=True,
-        )[:candidate_k]
+        )[:merged_max]
 
         scored: list[tuple[int, float]] = []
         self.last_score_details = {}
+        self.last_debug = {
+            "original_query": query,
+            "normalized_query": normalized_query,
+            "expanded_terms": [item["term"] for item in query_info["expanded_terms"]],
+            "synonym_used": query_info["synonym_used"],
+            "candidate_count": len(candidate_indices),
+            "bm25_candidate_count": len(bm25_indices),
+            "ngram_candidate_count": len(ngram_indices),
+            "vector_candidate_count": len(vector_indices),
+            "merged_candidate_count": len(candidate_indices),
+            "vector_retrieval_enabled": SUPABASE_ENABLED,
+            "vector_retrieval_error": vector_error,
+            "embedding_available": embedding_available,
+            "embedding_model": EMBEDDING_MODEL_NAME if embedding_available else None,
+        }
         for idx in candidate_indices:
             chunk = self.chunks[idx]
             fields = self.normalized_fields[idx]
             bm25_norm = bm25_scores[idx] / max_bm25
             ngram_score = ngram_scores[idx]
-            embedding_score = max(0.0, min(1.0, (cosine_similarity(query_embedding, self.embeddings[idx]) + 1.0) / 2.0))
+            chunk_embedding = self.embeddings[idx] if idx < len(self.embeddings) else []
+            vector_embedding_score = vector_scores_by_id.get(chunk.chunk_id or "")
+            if vector_embedding_score is not None:
+                embedding_score = vector_embedding_score
+            elif embedding_available and chunk_embedding:
+                embedding_score = max(0.0, min(1.0, cosine_similarity(query_embedding, chunk_embedding)))
+            else:
+                embedding_score = 0.0
 
             field_raw = 0.0
             for field_name, boost in field_cfg.items():
@@ -695,8 +771,8 @@ class Retriever:
             recency_boost = calculate_recency_boost(chunk.updated_at, float(weights.get("recency_boost_max", 0.05)))
             final_score = (
                 bm25_norm * float(weights.get("bm25", 0.35))
-                + ngram_score * float(weights.get("ngram", 0.20))
-                + embedding_score * float(weights.get("embedding", 0.30))
+                + ngram_score * float(weights.get("ngram", 0.15))
+                + embedding_score * float(weights.get("embedding", 0.35))
                 + field_boost * float(weights.get("field_boost", 0.10))
                 + exact_match_boost * float(weights.get("exact_match_boost", 0.05))
                 + recency_boost
@@ -708,6 +784,11 @@ class Retriever:
                 "field_boost": round(field_boost, 4),
                 "exact_match_boost": round(exact_match_boost, 4),
                 "recency_boost": round(recency_boost, 4),
+                "sources": {
+                    "bm25": "bm25" in sources_by_idx.get(idx, set()),
+                    "ngram": "ngram" in sources_by_idx.get(idx, set()),
+                    "vector": "vector" in sources_by_idx.get(idx, set()),
+                },
                 "synonym_used": query_info["synonym_used"],
                 "expanded_terms": [item["term"] for item in query_info["expanded_terms"]],
             }
@@ -1235,13 +1316,19 @@ _DEFAULT_SETTINGS: dict = {
     "search": {
         "weights": {
             "bm25": 0.35,
-            "ngram": 0.20,
-            "embedding": 0.30,
+            "ngram": 0.15,
+            "embedding": 0.35,
             "field_boost": 0.10,
             "exact_match_boost": 0.05,
             "recency_boost_max": 0.05,
         },
         "candidate_limit": 50,
+        "candidate_limits": {
+            "bm25": 50,
+            "ngram": 50,
+            "vector": 50,
+            "merged_max": 100,
+        },
         "field_boost_cap": 0.35,
         "exact_phrase_boost": 0.05,
         "compact_exact_phrase_boost": 0.03,
@@ -1404,6 +1491,7 @@ def sync_vector_index() -> dict:
     valid_ids = [chunk.chunk_id for chunk in chunks if chunk.chunk_id]
     stale_deleted = _db_delete_stale_chunks(valid_ids)
     rows: list[dict] = []
+    skipped_no_embedding = 0
     for idx, chunk in enumerate(chunks):
         if not chunk.chunk_id:
             continue
@@ -1411,9 +1499,19 @@ def sync_vector_index() -> dict:
         body_hash = retriever.embedding_store.text_hash(content)
         if existing.get(chunk.chunk_id) == body_hash:
             continue
-        rows.append(_chunk_embedding_payload(chunk, retriever.embeddings[idx], body_hash))
+        embedding = retriever.embeddings[idx] if idx < len(retriever.embeddings) else []
+        if not embedding:
+            skipped_no_embedding += 1
+            continue
+        rows.append(_chunk_embedding_payload(chunk, embedding, body_hash))
     upserted = _db_upsert_search_chunks(rows)
-    return {"ok": True, "chunks": len(chunks), "upserted": upserted, "stale_deleted": stale_deleted}
+    return {
+        "ok": True,
+        "chunks": len(chunks),
+        "upserted": upserted,
+        "stale_deleted": stale_deleted,
+        "skipped_no_embedding": skipped_no_embedding,
+    }
 
 
 # ──────────────────────────────────────────────
@@ -1442,15 +1540,15 @@ def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
     return results, context
 
 
-def search_documents(query: str, top_k: int = 5) -> list[dict]:
+def search_documents(query: str, top_k: int = 5, debug: bool = False) -> list[dict] | dict:
     """Return document-level grouped hybrid search results with score details."""
     query = query.strip()
     if not query:
-        return []
+        return {"results": [], "debug": {}} if debug else []
     candidate_top_k = max(top_k * 4, top_k)
     intent = detect_intent(query)
     candidate_k = INTENT_CONFIG[intent]["candidate_k"]
-    chunk_results = retriever.search(query, top_k=candidate_top_k, candidate_k=candidate_k, debug=_RAG_DEBUG)
+    chunk_results = retriever.search(query, top_k=candidate_top_k, candidate_k=candidate_k, debug=debug or _RAG_DEBUG)
 
     grouped: dict[str, dict] = {}
     for chunk, score in chunk_results:
@@ -1480,8 +1578,25 @@ def search_documents(query: str, top_k: int = 5) -> list[dict]:
         else:
             grouped[document_id]["related_chunks"].append(item)
 
-    results = sorted(grouped.values(), key=lambda item: item["score"], reverse=True)
-    return results[:top_k]
+    results = sorted(grouped.values(), key=lambda item: item["score"], reverse=True)[:top_k]
+    if not debug:
+        return results
+    return {
+        "results": results,
+        "debug": {
+            **retriever.last_debug,
+            "returned_document_count": len(results),
+            "top_scores": [
+                {
+                    "document_id": item["document_id"],
+                    "title": item["title"],
+                    "final_score": item["score"],
+                    "score_detail": item["score_detail"],
+                }
+                for item in results
+            ],
+        },
+    }
 
 
 def retrieve_for_llm(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
