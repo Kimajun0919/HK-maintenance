@@ -10,9 +10,9 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from config import DOCS_DIR, MAX_NEW_TOKENS, MODEL_NAME, USE_LLM
+from config import DOCS_DIR, EMBEDDING_DIM, EMBEDDING_MODEL_NAME, MAX_NEW_TOKENS, MODEL_NAME, SUPABASE_ENABLED, USE_LLM
 from models import Chunk
-from storage import _doc_records, _init_supabase_storage
+from storage import _db_delete_stale_chunks, _db_existing_chunk_hashes, _db_upsert_search_chunks, _doc_records, _init_supabase_storage
 
 # ──────────────────────────────────────────────
 # Query expansion tables (unchanged)
@@ -406,7 +406,10 @@ class EmbeddingStore:
     so reranking remains cached and dependency-free.
     """
 
-    def __init__(self, dim: int = 256) -> None:
+    _model = None
+    _model_failed = False
+
+    def __init__(self, dim: int = EMBEDDING_DIM) -> None:
         self.dim = dim
         self.vectors: dict[str, list[float]] = {}
         self.hashes: dict[str, str] = {}
@@ -443,9 +446,25 @@ class EmbeddingStore:
             pass
 
     def text_hash(self, text: str) -> str:
-        return hashlib.sha256(normalize_search_text(text).encode("utf-8")).hexdigest()
+        backend = os.getenv("EMBEDDING_BACKEND", "sentence-transformers").lower()
+        signature = f"{backend}:{EMBEDDING_MODEL_NAME}:{self.dim}"
+        return hashlib.sha256(f"{signature}\n{normalize_search_text(text)}".encode("utf-8")).hexdigest()
 
     def embed_text(self, text: str) -> list[float]:
+        model = self._load_model()
+        if model is not None:
+            vector = model.encode(
+                normalize_search_text(text),
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            values = [float(value) for value in vector.tolist()]
+            if len(values) == self.dim:
+                return values
+            if len(values) > self.dim:
+                return values[: self.dim]
+            return values + [0.0] * (self.dim - len(values))
+
         vector = [0.0] * self.dim
         tokens = bm25_tokens(text) + list(char_ngram_tokens(text))
         for token in tokens:
@@ -457,6 +476,23 @@ class EmbeddingStore:
         if norm:
             vector = [v / norm for v in vector]
         return vector
+
+    @classmethod
+    def _load_model(cls):
+        if os.getenv("EMBEDDING_BACKEND", "sentence-transformers").lower() in {"hash", "fallback", "none"}:
+            return None
+        if cls._model_failed:
+            return None
+        if cls._model is not None:
+            return cls._model
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            cls._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+            return cls._model
+        except Exception:
+            cls._model_failed = True
+            return None
 
     def get_chunk_embedding(self, chunk: Chunk) -> list[float]:
         chunk_id = chunk.chunk_id or f"{chunk.source}:{chunk.title}:{hashlib.sha1(chunk.text.encode('utf-8')).hexdigest()[:12]}"
@@ -1329,11 +1365,55 @@ retriever = Retriever(chunks)
 load_settings()  # apply settings.json after retriever is ready
 
 
-def refresh_index() -> None:
+def refresh_index() -> dict | None:
     global chunks, retriever
     chunks = load_chunks()
     retriever = Retriever(chunks)
     _apply_settings_to_runtime()  # re-apply BM25 params to the new retriever
+    try:
+        return sync_vector_index()
+    except Exception as exc:
+        if _RAG_DEBUG:
+            print(f"[RAG_DEBUG] vector index sync failed: {exc}")
+        return {"ok": False, "error": str(exc), "chunks": len(chunks)}
+
+
+def _chunk_embedding_payload(chunk: Chunk, embedding: list[float], body_hash: str) -> dict:
+    return {
+        "chunk_id": chunk.chunk_id,
+        "document_id": chunk.document_id or _stable_document_id(chunk.source),
+        "source": chunk.source,
+        "title": chunk.title,
+        "filename": chunk.filename or chunk.source.rsplit("/", 1)[-1],
+        "folder": chunk.folder if chunk.folder is not None else (chunk.source.rsplit("/", 1)[0] if "/" in chunk.source else ""),
+        "heading": chunk.heading or chunk.title,
+        "body": chunk.text,
+        "normalized_body": chunk.normalized_body or normalize_search_text(chunk.text),
+        "compact_body": chunk.compact_body or compact_search_text(chunk.text),
+        "body_hash": body_hash,
+        "embedding": embedding,
+        "updated_at": chunk.updated_at,
+    }
+
+
+def sync_vector_index() -> dict:
+    """Persist current chunks and embeddings into the Supabase pgvector table."""
+    if not SUPABASE_ENABLED:
+        return {"ok": False, "reason": "supabase disabled", "chunks": len(chunks)}
+    existing = _db_existing_chunk_hashes()
+    valid_ids = [chunk.chunk_id for chunk in chunks if chunk.chunk_id]
+    stale_deleted = _db_delete_stale_chunks(valid_ids)
+    rows: list[dict] = []
+    for idx, chunk in enumerate(chunks):
+        if not chunk.chunk_id:
+            continue
+        content = "\n".join([chunk.title, chunk.heading or "", chunk.source, chunk.text])
+        body_hash = retriever.embedding_store.text_hash(content)
+        if existing.get(chunk.chunk_id) == body_hash:
+            continue
+        rows.append(_chunk_embedding_payload(chunk, retriever.embeddings[idx], body_hash))
+    upserted = _db_upsert_search_chunks(rows)
+    return {"ok": True, "chunks": len(chunks), "upserted": upserted, "stale_deleted": stale_deleted}
 
 
 # ──────────────────────────────────────────────

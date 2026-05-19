@@ -220,11 +220,44 @@ n-gram: 물이, 이새, 새요, 물이새, 이새요 ...
 |---|---|
 | 저장 단위 | chunk |
 | 캐시 파일 | `backend/.embedding_cache.json` |
+| Supabase 저장소 | `maintenance_docs_chunks` 또는 `SUPABASE_CHUNKS_TABLE` |
 | 재생성 조건 | 청크 내용 해시가 변경된 경우 |
 | 검색 시 계산 범위 | BM25 + n-gram 상위 후보 |
 | 유사도 | cosine similarity |
 
-현재 기본 `EmbeddingStore`는 외부 모델 의존성을 추가하지 않기 위해 deterministic hashed vector를 사용한다. 운영 환경에서 실제 semantic embedding API 또는 로컬 embedding model을 연결하려면 `EmbeddingStore.embed_text`를 교체하면 된다. 나머지 검색 파이프라인과 점수 계산 구조는 그대로 유지된다.
+현재 기본 `EmbeddingStore`는 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 모델을 사용한다. 이 모델은 한국어를 포함한 다국어 문장 임베딩을 384차원 벡터로 생성한다. 모델 로딩이 불가능한 개발 환경에서는 검색 기능이 완전히 중단되지 않도록 deterministic hashed vector로 fallback한다.
+
+Supabase 사용 시 `pgvector` 확장을 활성화하고, 청크 단위 검색 인덱스를 별도 테이블에 저장한다.
+
+```txt
+maintenance_docs_chunks
+- chunk_id
+- document_id
+- source
+- title
+- filename
+- folder
+- heading
+- body
+- normalized_body
+- compact_body
+- body_hash
+- embedding vector(384)
+- updated_at
+- indexed_at
+```
+
+기존 문서 전체를 청크/벡터로 변환하려면 다음 명령을 실행한다.
+
+```powershell
+python scripts/rebuild_vector_index.py
+```
+
+또는 서버 실행 중 다음 API를 호출할 수 있다.
+
+```txt
+POST /api/search-index/rebuild
+```
 
 ## 10. 동의어 확장
 
@@ -359,11 +392,11 @@ python -m unittest backend.test_hybrid_search
 
 ## 15. 한계와 확장 방향
 
-현재 구조는 검색 파이프라인을 모듈화했지만, 기본 임베딩 구현은 외부 semantic embedding 모델이 아니라 deterministic hashed vector다. 이 방식은 운영 의존성이 낮고 캐시/재순위화 구조를 검증하기 좋지만, 의미적 동의어를 깊게 이해하는 수준은 제한적이다.
+현재 구조는 실제 sentence-transformers 임베딩을 사용하지만, 검색 후보 생성은 여전히 인메모리 BM25 + n-gram 기반이다. Supabase의 벡터 테이블은 청크 임베딩 영속화와 운영 재사용을 담당한다.
 
 향후 개선 방향:
 
-1. `EmbeddingStore.embed_text`에 실제 embedding model 연결
+1. Supabase vector similarity SQL을 이용한 대규모 후보 검색
 2. 동의어 사전 관리 UI 또는 DB 테이블 추가
 3. 검색 로그 기반 weight 튜닝
 4. 문서별 클릭/선택 피드백 기반 reranking

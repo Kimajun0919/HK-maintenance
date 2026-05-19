@@ -8,12 +8,14 @@ from config import (
     DOCS_DIR,
     SUPABASE_ASSETS_TABLE,
     SUPABASE_AUTO_MIGRATE,
+    SUPABASE_CHUNKS_TABLE,
     SUPABASE_DB_URL,
     SUPABASE_DOCS_TABLE,
     SUPABASE_ENABLED,
     SUPABASE_FOLDERS_TABLE,
     SUPABASE_META_TABLE,
     SUPABASE_SEED_FROM_FILES,
+    EMBEDDING_DIM,
 )
 from models import AssetRecord, DocRecord, FolderRecord
 
@@ -67,6 +69,10 @@ def _db_connect():
     except ModuleNotFoundError as exc:
         raise RuntimeError("Supabase DB storage requires `psycopg[binary]`. Run pip install -r requirements.txt.") from exc
     return psycopg.connect(SUPABASE_DB_URL, autocommit=True)
+
+
+def _vector_literal(values: list[float]) -> str:
+    return "[" + ",".join(f"{float(value):.8f}" for value in values) + "]"
 
 
 def _init_supabase_storage() -> None:
@@ -129,6 +135,37 @@ def _init_supabase_storage() -> None:
                 cur.execute(f"create index if not exists {SUPABASE_DOCS_TABLE}_deleted_at_idx on {SUPABASE_DOCS_TABLE} (deleted_at) where deleted_at is not null")
                 cur.execute(f"alter table {SUPABASE_ASSETS_TABLE} add column if not exists deleted_at timestamptz")
                 cur.execute(f"create index if not exists {SUPABASE_ASSETS_TABLE}_deleted_at_idx on {SUPABASE_ASSETS_TABLE} (deleted_at) where deleted_at is not null")
+                try:
+                    cur.execute("create extension if not exists vector")
+                    cur.execute(
+                        f"""
+                        create table if not exists {SUPABASE_CHUNKS_TABLE} (
+                            chunk_id text primary key,
+                            document_id text not null,
+                            source text not null,
+                            title text not null,
+                            filename text not null default '',
+                            folder text not null default '',
+                            heading text not null default '',
+                            body text not null,
+                            normalized_body text not null default '',
+                            compact_body text not null default '',
+                            body_hash text not null,
+                            embedding vector({EMBEDDING_DIM}) not null,
+                            updated_at timestamptz,
+                            indexed_at timestamptz not null default now()
+                        )
+                        """
+                    )
+                    cur.execute(f"create index if not exists {SUPABASE_CHUNKS_TABLE}_document_id_idx on {SUPABASE_CHUNKS_TABLE} (document_id)")
+                    cur.execute(f"create index if not exists {SUPABASE_CHUNKS_TABLE}_source_idx on {SUPABASE_CHUNKS_TABLE} (source)")
+                    cur.execute(f"create index if not exists {SUPABASE_CHUNKS_TABLE}_body_hash_idx on {SUPABASE_CHUNKS_TABLE} (body_hash)")
+                    cur.execute(
+                        f"create index if not exists {SUPABASE_CHUNKS_TABLE}_embedding_hnsw_idx on {SUPABASE_CHUNKS_TABLE} using hnsw (embedding vector_cosine_ops)"
+                    )
+                except Exception:
+                    # pgvector may be unavailable in local PostgreSQL. Core document storage should still boot.
+                    pass
                 cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where deleted_at < now() - interval '30 days'")
                 cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where deleted_at < now() - interval '30 days'")
             if SUPABASE_SEED_FROM_FILES:
@@ -419,6 +456,80 @@ def _db_permanent_delete_doc(source: str) -> None:
     with _db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where source = %s", (source,))
+            cur.execute(f"delete from {SUPABASE_CHUNKS_TABLE} where source = %s", (source,))
+
+
+def _db_delete_chunks_for_source(source: str) -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"delete from {SUPABASE_CHUNKS_TABLE} where source = %s", (source,))
+
+
+def _db_delete_stale_chunks(valid_chunk_ids: list[str]) -> int:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            if valid_chunk_ids:
+                cur.execute(f"delete from {SUPABASE_CHUNKS_TABLE} where not (chunk_id = any(%s))", (valid_chunk_ids,))
+            else:
+                cur.execute(f"delete from {SUPABASE_CHUNKS_TABLE}")
+            return cur.rowcount
+
+
+def _db_existing_chunk_hashes() -> dict[str, str]:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select chunk_id, body_hash from {SUPABASE_CHUNKS_TABLE}")
+            return {row[0]: row[1] for row in cur.fetchall()}
+
+
+def _db_upsert_search_chunks(rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    payload = [
+        (
+            row["chunk_id"],
+            row["document_id"],
+            row["source"],
+            row["title"],
+            row.get("filename", ""),
+            row.get("folder", ""),
+            row.get("heading", ""),
+            row["body"],
+            row.get("normalized_body", ""),
+            row.get("compact_body", ""),
+            row["body_hash"],
+            _vector_literal(row["embedding"]),
+            row.get("updated_at"),
+        )
+        for row in rows
+    ]
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                f"""
+                insert into {SUPABASE_CHUNKS_TABLE} (
+                    chunk_id, document_id, source, title, filename, folder, heading,
+                    body, normalized_body, compact_body, body_hash, embedding, updated_at
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
+                on conflict (chunk_id) do update set
+                    document_id = excluded.document_id,
+                    source = excluded.source,
+                    title = excluded.title,
+                    filename = excluded.filename,
+                    folder = excluded.folder,
+                    heading = excluded.heading,
+                    body = excluded.body,
+                    normalized_body = excluded.normalized_body,
+                    compact_body = excluded.compact_body,
+                    body_hash = excluded.body_hash,
+                    embedding = excluded.embedding,
+                    updated_at = excluded.updated_at,
+                    indexed_at = now()
+                """,
+                payload,
+            )
+    return len(rows)
 
 
 def _extract_asset_refs(source: str, content: str) -> list[str]:

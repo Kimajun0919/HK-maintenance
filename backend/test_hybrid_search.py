@@ -3,7 +3,9 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 import sys
+import os
 
+os.environ.setdefault("EMBEDDING_BACKEND", "hash")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rag
 from models import Chunk

@@ -34,12 +34,16 @@ APP_ALLOW_REMOTE_FOLDER_PARSE = os.getenv("APP_ALLOW_REMOTE_FOLDER_PARSE", "0") 
 SUPABASE_DOCS_TABLE = os.getenv("SUPABASE_DOCS_TABLE", "maintenance_docs")
 SUPABASE_ASSETS_TABLE = os.getenv("SUPABASE_ASSETS_TABLE", f"{SUPABASE_DOCS_TABLE}_assets")
 SUPABASE_FOLDERS_TABLE = os.getenv("SUPABASE_FOLDERS_TABLE", f"{SUPABASE_DOCS_TABLE}_folders")
+SUPABASE_CHUNKS_TABLE = os.getenv("SUPABASE_CHUNKS_TABLE", f"{SUPABASE_DOCS_TABLE}_chunks")
 SUPABASE_META_TABLE = f"{SUPABASE_DOCS_TABLE}_meta"
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
 
 for table_name, env_name in (
     (SUPABASE_DOCS_TABLE, "SUPABASE_DOCS_TABLE"),
     (SUPABASE_ASSETS_TABLE, "SUPABASE_ASSETS_TABLE"),
     (SUPABASE_FOLDERS_TABLE, "SUPABASE_FOLDERS_TABLE"),
+    (SUPABASE_CHUNKS_TABLE, "SUPABASE_CHUNKS_TABLE"),
 ):
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table_name):
         raise ValueError(f"{env_name} must be a simple SQL identifier")
