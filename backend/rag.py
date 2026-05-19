@@ -524,11 +524,11 @@ class EmbeddingStore:
         chunk_id = chunk.chunk_id or f"{chunk.source}:{chunk.title}:{hashlib.sha1(chunk.text.encode('utf-8')).hexdigest()[:12]}"
         content = self.chunk_embedding_text(chunk)
         content_hash = self.text_hash(content)
-        if force or self.hashes.get(chunk_id) != content_hash:
+        if force or self.hashes.get(chunk_id) != content_hash or chunk_id not in self.vectors:
             self.vectors[chunk_id] = self.embed_text(content)
             self.hashes[chunk_id] = content_hash
             self.dirty = True
-        return self.vectors[chunk_id]
+        return self.vectors.get(chunk_id, [])
 
 
 class Retriever:
@@ -542,7 +542,7 @@ class Retriever:
         self.normalized_fields = [self._normalized_fields(c) for c in chunks]
         self.ngram_sets = [char_ngram_tokens(self._searchable_text(c)) for c in chunks]
         self.embedding_store = EmbeddingStore()
-        self.embeddings = [self.embedding_store.get_chunk_embedding(c) for c in chunks]
+        self.embeddings = [[] for _chunk in chunks]
         self.embedding_store.save()
         self.chunk_index_by_id = {chunk.chunk_id: idx for idx, chunk in enumerate(chunks) if chunk.chunk_id}
         self.last_score_details: dict[str, dict] = {}
@@ -770,6 +770,11 @@ class Retriever:
                 embedding_score = vector_embedding_score
             elif embedding_available and chunk_embedding:
                 embedding_score = max(0.0, min(1.0, cosine_similarity(query_embedding, chunk_embedding)))
+            elif embedding_available:
+                chunk_embedding = self.embedding_store.get_chunk_embedding(chunk)
+                if idx < len(self.embeddings):
+                    self.embeddings[idx] = chunk_embedding
+                embedding_score = max(0.0, min(1.0, cosine_similarity(query_embedding, chunk_embedding))) if chunk_embedding else 0.0
             else:
                 embedding_score = 0.0
 
@@ -1570,6 +1575,10 @@ def sync_vector_index(force: bool = False) -> dict:
                 retriever.embeddings[idx] = embedding
         else:
             embedding = retriever.embeddings[idx] if idx < len(retriever.embeddings) else []
+            if not embedding:
+                embedding = retriever.embedding_store.get_chunk_embedding(chunk)
+                if idx < len(retriever.embeddings):
+                    retriever.embeddings[idx] = embedding
         if not embedding:
             skipped_no_embedding += 1
             continue
