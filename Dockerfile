@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/*.py .
 COPY frontend/ frontend/
 
+ENV APP_HOST=0.0.0.0
 ENV APP_PORT=8080
 EXPOSE 8080
 
