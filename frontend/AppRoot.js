@@ -2107,12 +2107,12 @@ export function App() {
                 className: activeTool === "question" ? "active" : "",
                 onClick: () => setActiveTool("question")
               }, "AI 질문")
-              ,
-              h("button", {
-                type: "button",
-                className: activeTool === "parser" ? "active" : "",
-                onClick: () => setActiveTool("parser")
-              }, "폴더 파서")
+              // 폴더 파서 UI는 필요 시 다시 노출할 수 있도록 백엔드와 함수는 유지하고 탭만 숨김.
+              // , h("button", {
+              //   type: "button",
+              //   className: activeTool === "parser" ? "active" : "",
+              //   onClick: () => setActiveTool("parser")
+              // }, "폴더 파서")
             ),
             h("div", { className: "tool-panel" },
               activeTool === "search" ? [
@@ -2239,54 +2239,7 @@ export function App() {
                     )
                   )
                 )
-              ] : [
-                h("div", { key: "parser-panel", className: "tool-form" },
-                  h("label", null, "로컬 폴더 경로",
-                    h("input", {
-                      value: parserPath,
-                      onChange: (event) => setParserPath(event.target.value),
-                      placeholder: "예: C:\\test\\docs 또는 /Users/me/docs"
-                    })
-                  ),
-                  h("label", null, "가져올 폴더명",
-                    h("input", {
-                      value: parserTargetFolder,
-                      onChange: (event) => setParserTargetFolder(event.target.value),
-                      placeholder: "비워두면 선택 폴더/하위 폴더명을 사용"
-                    })
-                  ),
-                  h("div", { className: "parser-options" },
-                    h("label", { className: "toggle parser-toggle" },
-                      h("input", { type: "checkbox", checked: parserRecursive, onChange: (event) => setParserRecursive(event.target.checked) }),
-                      "하위 폴더 포함"
-                    ),
-                    h("label", { className: "toggle parser-toggle" },
-                      h("input", { type: "checkbox", checked: parserOverwrite, onChange: (event) => setParserOverwrite(event.target.checked) }),
-                      "기존 문서 덮어쓰기"
-                    )
-                  ),
-                  h("div", { className: "parser-actions" },
-                    h("button", { type: "button", onClick: () => parseFolder(false), disabled: loading === "folder-parse" || loading === "folder-import" }, loading === "folder-parse" ? "분석 중" : "분석"),
-                    h("button", { type: "button", className: "primary", onClick: () => parseFolder(true), disabled: loading === "folder-parse" || loading === "folder-import" }, loading === "folder-import" ? "가져오는 중" : "가져오기")
-                  ),
-                  parserResult && h("div", { className: "parser-result" },
-                    h("div", { className: "section-title" }, parserResult.imported ? "가져오기 결과" : "분석 결과"),
-                    h("div", { className: "parser-summary" },
-                      h("span", null, `대상 ${parserResult.summary?.files || 0}개`),
-                      parserResult.imported && h("span", null, `생성 ${parserResult.summary?.created || 0}개`),
-                      parserResult.imported && h("span", null, `수정 ${parserResult.summary?.updated || 0}개`),
-                      parserResult.imported && h("span", null, `건너뜀 ${parserResult.summary?.skipped || 0}개`)
-                    ),
-                    h("div", { className: "parser-file-list" },
-                      (parserResult.files || []).slice(0, 80).map((item) => h("div", { key: item.relativePath + item.source, className: "parser-file-item" },
-                        h("strong", null, item.relativePath),
-                        h("span", null, item.source + (item.exists ? " · 기존 문서 있음" : ""))
-                      )),
-                      (parserResult.files || []).length > 80 && h("p", { className: "empty" }, `외 ${(parserResult.files || []).length - 80}개`)
-                    )
-                  )
-                )
-              ]
+              ] : null
             )
           ),
 
