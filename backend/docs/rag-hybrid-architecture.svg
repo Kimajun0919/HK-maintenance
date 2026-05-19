@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="520" viewBox="0 0 1180 520" role="img" aria-labelledby="title desc">
+  <title id="title">HK Maintenance Hybrid Retrieval Architecture</title>
+  <desc id="desc">Hybrid retrieval pipeline combining BM25, character n-gram similarity, and embedding reranking.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#334155"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .box { fill: #ffffff; stroke: #334155; stroke-width: 1.8; rx: 10; }
+      .blue { fill: #eff6ff; stroke: #2563eb; }
+      .green { fill: #ecfdf5; stroke: #059669; }
+      .amber { fill: #fffbeb; stroke: #d97706; }
+      .rose { fill: #fff1f2; stroke: #e11d48; }
+      .text { font-family: Arial, "Noto Sans KR", sans-serif; font-size: 18px; fill: #0f172a; }
+      .small { font-size: 14px; fill: #475569; }
+      .title { font-size: 28px; font-weight: 700; }
+      .arrow { stroke: #334155; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect class="bg" width="1180" height="520"/>
+  <text x="40" y="48" class="text title">HK Maintenance Hybrid Retrieval</text>
+  <text x="40" y="78" class="text small">Retrieval-only search: no answer generation, no result summarization</text>
+
+  <rect x="40" y="130" width="150" height="90" class="box blue"/>
+  <text x="115" y="166" text-anchor="middle" class="text">Query</text>
+  <text x="115" y="193" text-anchor="middle" class="text small">normalize</text>
+
+  <rect x="240" y="130" width="170" height="90" class="box"/>
+  <text x="325" y="160" text-anchor="middle" class="text">Optional</text>
+  <text x="325" y="186" text-anchor="middle" class="text">Synonyms</text>
+  <text x="325" y="210" text-anchor="middle" class="text small">empty-safe</text>
+
+  <rect x="470" y="80" width="180" height="90" class="box green"/>
+  <text x="560" y="116" text-anchor="middle" class="text">BM25</text>
+  <text x="560" y="143" text-anchor="middle" class="text small">keyword relevance</text>
+
+  <rect x="470" y="210" width="180" height="90" class="box green"/>
+  <text x="560" y="246" text-anchor="middle" class="text">Char n-gram</text>
+  <text x="560" y="273" text-anchor="middle" class="text small">spacing / typo match</text>
+
+  <rect x="720" y="145" width="180" height="90" class="box amber"/>
+  <text x="810" y="181" text-anchor="middle" class="text">Candidates</text>
+  <text x="810" y="208" text-anchor="middle" class="text small">top 30-50 chunks</text>
+
+  <rect x="720" y="315" width="180" height="90" class="box amber"/>
+  <text x="810" y="351" text-anchor="middle" class="text">Embeddings</text>
+  <text x="810" y="378" text-anchor="middle" class="text small">cached per chunk</text>
+
+  <rect x="960" y="145" width="180" height="90" class="box rose"/>
+  <text x="1050" y="176" text-anchor="middle" class="text">Final Score</text>
+  <text x="1050" y="203" text-anchor="middle" class="text small">weighted rerank</text>
+
+  <rect x="960" y="315" width="180" height="90" class="box blue"/>
+  <text x="1050" y="351" text-anchor="middle" class="text">Documents</text>
+  <text x="1050" y="378" text-anchor="middle" class="text small">group related chunks</text>
+
+  <path d="M190 175 H240" class="arrow"/>
+  <path d="M410 175 C440 175 440 125 470 125" class="arrow"/>
+  <path d="M410 175 C440 175 440 255 470 255" class="arrow"/>
+  <path d="M650 125 C690 125 690 190 720 190" class="arrow"/>
+  <path d="M650 255 C690 255 690 190 720 190" class="arrow"/>
+  <path d="M810 235 V315" class="arrow"/>
+  <path d="M900 190 H960" class="arrow"/>
+  <path d="M900 360 C930 360 930 235 960 205" class="arrow"/>
+  <path d="M1050 235 V315" class="arrow"/>
+
+  <text x="40" y="470" class="text small">Score = BM25*0.35 + n-gram*0.20 + embedding*0.30 + field_boost*0.10 + exact_match*0.05 + recency</text>
+</svg>
