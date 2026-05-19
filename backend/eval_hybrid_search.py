@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import rag
 
 
 CASES_PATH = Path(__file__).with_name("search_quality_cases.json")
+REPORT_PATH = Path(__file__).with_name("search_quality_report.json")
 
 
 def _result_text(item: dict) -> str:
@@ -28,13 +30,39 @@ def _matches(item: dict, expected_keywords: list[str], expected_document_ids: li
     return any(keyword.lower() in text for keyword in expected_keywords)
 
 
-def evaluate(top_k: int = 5) -> dict:
+MODES = ("bm25_only", "ngram_only", "vector_only", "hybrid")
+
+
+def _compact_candidate(item: dict) -> dict:
+    keys = (
+        "chunk_id",
+        "document_id",
+        "title",
+        "filename",
+        "folder",
+        "heading",
+        "matched_text",
+        "sources",
+        "bm25_score",
+        "ngram_score",
+        "embedding_score",
+        "field_boost",
+        "exact_match_boost",
+        "final_score",
+    )
+    return {key: item.get(key) for key in keys}
+
+
+def evaluate(top_k: int = 5, mode: str = "hybrid", include_failures: bool = False) -> dict:
     cases = json.loads(CASES_PATH.read_text(encoding="utf-8"))
     rows = []
+    failures = []
     top3_hits = 0
     top5_hits = 0
     for case in cases:
-        results = rag.search_documents(case["query"], top_k=top_k)
+        search_top_k = max(top_k, 10) if include_failures else top_k
+        payload = rag.search_documents(case["query"], top_k=search_top_k, debug=include_failures, mode=mode)
+        results = payload["results"] if include_failures else payload
         expected_keywords = case.get("expected_keywords", [])
         expected_document_ids = case.get("expected_document_ids", [])
         hit_rank = None
@@ -54,8 +82,23 @@ def evaluate(top_k: int = 5) -> dict:
                 "top_score": results[0]["score"] if results else 0,
             }
         )
+        if include_failures and hit_rank is None:
+            debug = payload.get("debug", {})
+            candidates = debug.get("candidates", {})
+            failures.append(
+                {
+                    "query": case["query"],
+                    "expected_keywords": expected_keywords,
+                    "expected_document_ids": expected_document_ids,
+                    "bm25_candidates": [_compact_candidate(item) for item in candidates.get("bm25", [])[:10]],
+                    "ngram_candidates": [_compact_candidate(item) for item in candidates.get("ngram", [])[:10]],
+                    "vector_candidates": [_compact_candidate(item) for item in candidates.get("vector", [])[:10]],
+                    "final_results": [_compact_candidate(item) for item in debug.get("final_results", [])[:10]],
+                }
+            )
     total = len(cases)
-    return {
+    report = {
+        "mode": mode,
         "total": total,
         "top3_hits": top3_hits,
         "top5_hits": top5_hits,
@@ -63,11 +106,34 @@ def evaluate(top_k: int = 5) -> dict:
         "top5_accuracy": round(top5_hits / total, 4) if total else 0,
         "rows": rows,
     }
+    if include_failures:
+        report["failures"] = failures
+    return report
+
+
+def evaluate_all_modes(top_k: int = 5) -> dict:
+    return {mode: evaluate(top_k=top_k, mode=mode, include_failures=False) for mode in MODES}
 
 
 def main() -> int:
-    report = evaluate()
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    modes = evaluate_all_modes()
+    report = {
+        "summary": {
+            mode: {
+                "top3_accuracy": data["top3_accuracy"],
+                "top5_accuracy": data["top5_accuracy"],
+                "top3_hits": data["top3_hits"],
+                "top5_hits": data["top5_hits"],
+                "total": data["total"],
+            }
+            for mode, data in modes.items()
+        },
+        "hybrid": evaluate(mode="hybrid", include_failures=True),
+    }
+    REPORT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps({"summary": report["summary"], "report_path": str(REPORT_PATH)}, ensure_ascii=False, indent=2))
     return 0
 
 

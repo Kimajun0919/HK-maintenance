@@ -196,9 +196,7 @@ class HybridSearchTests(unittest.TestCase):
             make_chunk("facility/b.md", "B", "B1", "beta body"),
         ]
         retriever = rag.Retriever(local_chunks)
-        first_hash = retriever.embedding_store.text_hash(
-            "\n".join([local_chunks[0].title, local_chunks[0].heading or "", local_chunks[0].source, local_chunks[0].text])
-        )
+        first_hash = retriever.embedding_store.text_hash(retriever.embedding_store.chunk_embedding_text(local_chunks[0]))
         old_chunks = rag.chunks
         old_retriever = rag.retriever
         try:
@@ -218,6 +216,27 @@ class HybridSearchTests(unittest.TestCase):
         delete_stale.assert_called_once_with([chunk.chunk_id for chunk in local_chunks])
         self.assertEqual(len(upsert.call_args.args[0]), 1)
         self.assertEqual(upsert.call_args.args[0][0]["chunk_id"], local_chunks[1].chunk_id)
+
+    def test_force_sync_vector_index_rebuilds_unchanged_chunks(self) -> None:
+        local_chunks = [make_chunk("facility/a.md", "A", "A1", "alpha body")]
+        retriever = rag.Retriever(local_chunks)
+        current_hash = retriever.embedding_store.text_hash(retriever.embedding_store.chunk_embedding_text(local_chunks[0]))
+        old_chunks = rag.chunks
+        old_retriever = rag.retriever
+        try:
+            rag.chunks = local_chunks
+            rag.retriever = retriever
+            with patch.object(rag, "SUPABASE_ENABLED", True), \
+                 patch.object(rag, "_db_existing_chunk_hashes", return_value={local_chunks[0].chunk_id: current_hash}), \
+                 patch.object(rag, "_db_delete_stale_chunks", return_value=0), \
+                 patch.object(rag, "_db_upsert_search_chunks", return_value=1) as upsert:
+                result = rag.sync_vector_index(force=True)
+        finally:
+            rag.chunks = old_chunks
+            rag.retriever = old_retriever
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["force"])
+        self.assertEqual(len(upsert.call_args.args[0]), 1)
 
     def test_quality_case_set_has_at_least_30_queries(self) -> None:
         cases_path = Path(__file__).with_name("search_quality_cases.json")

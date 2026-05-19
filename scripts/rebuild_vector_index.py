@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import argparse
 from pathlib import Path
 
 
@@ -12,7 +13,10 @@ import rag  # noqa: E402
 
 
 def main() -> int:
-    result = rag.refresh_index() or {}
+    parser = argparse.ArgumentParser(description="Rebuild the Supabase pgvector search index.")
+    parser.add_argument("--force", action="store_true", help="Regenerate and upsert all chunk embeddings.")
+    args = parser.parse_args()
+    result = rag.refresh_index(force=args.force) or {}
     print(result)
     if not result.get("ok"):
         return 1

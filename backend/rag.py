@@ -492,6 +492,17 @@ class EmbeddingStore:
             vector = [v / norm for v in vector]
         return vector
 
+    @staticmethod
+    def chunk_embedding_text(chunk: Chunk) -> str:
+        fields = [
+            ("문서 제목", chunk.title),
+            ("폴더", chunk.folder if chunk.folder is not None else (chunk.source.rsplit("/", 1)[0] if "/" in chunk.source else "")),
+            ("파일명", chunk.filename or chunk.source.rsplit("/", 1)[-1]),
+            ("소제목", chunk.heading or ""),
+            ("내용", chunk.text),
+        ]
+        return "\n".join(f"{label}: {value}" for label, value in fields if str(value or "").strip())
+
     @classmethod
     def _load_model(cls):
         if os.getenv("EMBEDDING_BACKEND", "sentence-transformers").lower() in {"hash", "fallback", "none"}:
@@ -509,11 +520,11 @@ class EmbeddingStore:
             cls._model_failed = True
             return None
 
-    def get_chunk_embedding(self, chunk: Chunk) -> list[float]:
+    def get_chunk_embedding(self, chunk: Chunk, force: bool = False) -> list[float]:
         chunk_id = chunk.chunk_id or f"{chunk.source}:{chunk.title}:{hashlib.sha1(chunk.text.encode('utf-8')).hexdigest()[:12]}"
-        content = "\n".join([chunk.title, chunk.heading or "", chunk.source, chunk.text])
+        content = self.chunk_embedding_text(chunk)
         content_hash = self.text_hash(content)
-        if self.hashes.get(chunk_id) != content_hash:
+        if force or self.hashes.get(chunk_id) != content_hash:
             self.vectors[chunk_id] = self.embed_text(content)
             self.hashes[chunk_id] = content_hash
             self.dirty = True
@@ -651,7 +662,9 @@ class Retriever:
         top_k: int = 5,
         candidate_k: int = 40,
         debug: bool = False,
+        mode: str = "hybrid",
     ) -> list[tuple[Chunk, float]]:
+        mode = mode if mode in {"hybrid", "bm25_only", "ngram_only", "vector_only"} else "hybrid"
         search_cfg = _SETTINGS.get("search", _DEFAULT_SETTINGS["search"])
         weights = search_cfg.get("weights", _DEFAULT_SETTINGS["search"]["weights"])
         field_cfg = search_cfg.get("field_boosts", _DEFAULT_SETTINGS["search"]["field_boosts"])
@@ -709,21 +722,29 @@ class Retriever:
             for idx in indices:
                 sources_by_idx.setdefault(idx, set()).add(source_name)
 
-        candidate_indices = sorted(
-            sources_by_idx,
-            key=lambda i: (
-                (bm25_scores[i] / max_bm25) * float(weights.get("bm25", 0.35))
-                + ngram_scores[i] * float(weights.get("ngram", 0.15))
-                + vector_scores_by_id.get(self.chunks[i].chunk_id or "", 0.0) * float(weights.get("embedding", 0.35))
-            ),
-            reverse=True,
-        )[:merged_max]
+        if mode == "bm25_only":
+            candidate_indices = bm25_indices
+        elif mode == "ngram_only":
+            candidate_indices = ngram_indices
+        elif mode == "vector_only":
+            candidate_indices = vector_indices
+        else:
+            candidate_indices = sorted(
+                sources_by_idx,
+                key=lambda i: (
+                    (bm25_scores[i] / max_bm25) * float(weights.get("bm25", 0.35))
+                    + ngram_scores[i] * float(weights.get("ngram", 0.15))
+                    + vector_scores_by_id.get(self.chunks[i].chunk_id or "", 0.0) * float(weights.get("embedding", 0.35))
+                ),
+                reverse=True,
+            )[:merged_max]
 
         scored: list[tuple[int, float]] = []
         self.last_score_details = {}
         self.last_debug = {
             "original_query": query,
             "normalized_query": normalized_query,
+            "mode": mode,
             "expanded_terms": [item["term"] for item in query_info["expanded_terms"]],
             "synonym_used": query_info["synonym_used"],
             "candidate_count": len(candidate_indices),
@@ -736,6 +757,8 @@ class Retriever:
             "embedding_available": embedding_available,
             "embedding_model": EMBEDDING_MODEL_NAME if embedding_available else None,
         }
+        debug_candidates: dict[str, list[dict]] = {"bm25": [], "ngram": [], "vector": []}
+        final_debug_results: list[dict] = []
         for idx in candidate_indices:
             chunk = self.chunks[idx]
             fields = self.normalized_fields[idx]
@@ -777,6 +800,13 @@ class Retriever:
                 + exact_match_boost * float(weights.get("exact_match_boost", 0.05))
                 + recency_boost
             )
+            ranking_score = final_score
+            if mode == "bm25_only":
+                ranking_score = bm25_norm
+            elif mode == "ngram_only":
+                ranking_score = ngram_score
+            elif mode == "vector_only":
+                ranking_score = embedding_score
             detail = {
                 "bm25": round(bm25_norm, 4),
                 "ngram": round(ngram_score, 4),
@@ -793,12 +823,46 @@ class Retriever:
                 "expanded_terms": [item["term"] for item in query_info["expanded_terms"]],
             }
             self.last_score_details[chunk.chunk_id or str(idx)] = detail
-            if debug:
+            if debug and _RAG_DEBUG:
                 print(f"[RAG_DEBUG] idx={idx} final={final_score:.3f} detail={detail}")
-            scored.append((idx, final_score))
+            scored.append((idx, ranking_score))
+
+            debug_item = self._debug_candidate_item(chunk, detail, final_score)
+            if idx in bm25_indices:
+                debug_candidates["bm25"].append(debug_item)
+            if idx in ngram_indices:
+                debug_candidates["ngram"].append(debug_item)
+            if idx in vector_indices:
+                debug_candidates["vector"].append(debug_item)
+            final_debug_results.append(debug_item)
 
         scored.sort(key=lambda x: x[1], reverse=True)
+        self.last_debug["candidates"] = {
+            "bm25": sorted(debug_candidates["bm25"], key=lambda item: item["bm25_score"], reverse=True)[:10],
+            "ngram": sorted(debug_candidates["ngram"], key=lambda item: item["ngram_score"], reverse=True)[:10],
+            "vector": sorted(debug_candidates["vector"], key=lambda item: item["embedding_score"], reverse=True)[:10],
+        }
+        self.last_debug["final_results"] = sorted(final_debug_results, key=lambda item: item["final_score"], reverse=True)[:10]
         return [(self.chunks[idx], score) for idx, score in scored[:top_k] if score > 0]
+
+    @staticmethod
+    def _debug_candidate_item(chunk: Chunk, detail: dict, final_score: float) -> dict:
+        return {
+            "chunk_id": chunk.chunk_id,
+            "document_id": chunk.document_id or _stable_document_id(chunk.source),
+            "title": chunk.title,
+            "filename": chunk.filename or chunk.source.rsplit("/", 1)[-1],
+            "folder": chunk.folder if chunk.folder is not None else (chunk.source.rsplit("/", 1)[0] if "/" in chunk.source else ""),
+            "heading": chunk.heading or chunk.title,
+            "matched_text": re.sub(r"\s+", " ", chunk.text).strip()[:700],
+            "sources": detail.get("sources", {}),
+            "bm25_score": detail.get("bm25", 0.0),
+            "ngram_score": detail.get("ngram", 0.0),
+            "embedding_score": detail.get("embedding", 0.0),
+            "field_boost": detail.get("field_boost", 0.0),
+            "exact_match_boost": detail.get("exact_match_boost", 0.0),
+            "final_score": round(final_score, 4),
+        }
 
     def search(
         self,
@@ -806,12 +870,13 @@ class Retriever:
         top_k: int = 5,
         candidate_k: int = 40,
         debug: bool = False,
+        mode: str = "hybrid",
     ) -> list[tuple[Chunk, float]]:
         if not self.chunks:
             return []
         if self.bm25 is None:
             return self._cosine_fallback(query, top_k)
-        return self._hybrid_search(query, top_k=top_k, candidate_k=candidate_k, debug=debug)
+        return self._hybrid_search(query, top_k=top_k, candidate_k=candidate_k, debug=debug, mode=mode)
 
         expanded_query = self._expand_query(query)
         query_tokens = tokenize(expanded_query)
@@ -1452,13 +1517,13 @@ retriever = Retriever(chunks)
 load_settings()  # apply settings.json after retriever is ready
 
 
-def refresh_index() -> dict | None:
+def refresh_index(force: bool = False) -> dict | None:
     global chunks, retriever
     chunks = load_chunks()
     retriever = Retriever(chunks)
     _apply_settings_to_runtime()  # re-apply BM25 params to the new retriever
     try:
-        return sync_vector_index()
+        return sync_vector_index(force=force)
     except Exception as exc:
         if _RAG_DEBUG:
             print(f"[RAG_DEBUG] vector index sync failed: {exc}")
@@ -1483,7 +1548,7 @@ def _chunk_embedding_payload(chunk: Chunk, embedding: list[float], body_hash: st
     }
 
 
-def sync_vector_index() -> dict:
+def sync_vector_index(force: bool = False) -> dict:
     """Persist current chunks and embeddings into the Supabase pgvector table."""
     if not SUPABASE_ENABLED:
         return {"ok": False, "reason": "supabase disabled", "chunks": len(chunks)}
@@ -1495,15 +1560,22 @@ def sync_vector_index() -> dict:
     for idx, chunk in enumerate(chunks):
         if not chunk.chunk_id:
             continue
-        content = "\n".join([chunk.title, chunk.heading or "", chunk.source, chunk.text])
+        content = retriever.embedding_store.chunk_embedding_text(chunk)
         body_hash = retriever.embedding_store.text_hash(content)
-        if existing.get(chunk.chunk_id) == body_hash:
+        if not force and existing.get(chunk.chunk_id) == body_hash:
             continue
-        embedding = retriever.embeddings[idx] if idx < len(retriever.embeddings) else []
+        if force:
+            embedding = retriever.embedding_store.get_chunk_embedding(chunk, force=True)
+            if idx < len(retriever.embeddings):
+                retriever.embeddings[idx] = embedding
+        else:
+            embedding = retriever.embeddings[idx] if idx < len(retriever.embeddings) else []
         if not embedding:
             skipped_no_embedding += 1
             continue
         rows.append(_chunk_embedding_payload(chunk, embedding, body_hash))
+    if force:
+        retriever.embedding_store.save()
     upserted = _db_upsert_search_chunks(rows)
     return {
         "ok": True,
@@ -1511,6 +1583,7 @@ def sync_vector_index() -> dict:
         "upserted": upserted,
         "stale_deleted": stale_deleted,
         "skipped_no_embedding": skipped_no_embedding,
+        "force": force,
     }
 
 
@@ -1540,7 +1613,7 @@ def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
     return results, context
 
 
-def search_documents(query: str, top_k: int = 5, debug: bool = False) -> list[dict] | dict:
+def search_documents(query: str, top_k: int = 5, debug: bool = False, mode: str = "hybrid") -> list[dict] | dict:
     """Return document-level grouped hybrid search results with score details."""
     query = query.strip()
     if not query:
@@ -1548,7 +1621,7 @@ def search_documents(query: str, top_k: int = 5, debug: bool = False) -> list[di
     candidate_top_k = max(top_k * 4, top_k)
     intent = detect_intent(query)
     candidate_k = INTENT_CONFIG[intent]["candidate_k"]
-    chunk_results = retriever.search(query, top_k=candidate_top_k, candidate_k=candidate_k, debug=debug or _RAG_DEBUG)
+    chunk_results = retriever.search(query, top_k=candidate_top_k, candidate_k=candidate_k, debug=debug or _RAG_DEBUG, mode=mode)
 
     grouped: dict[str, dict] = {}
     for chunk, score in chunk_results:

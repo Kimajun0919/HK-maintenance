@@ -1339,8 +1339,8 @@ def create_api_app():
         }
 
     @api_app.post("/api/search-index/rebuild")
-    def api_rebuild_search_index():
-        return rag.refresh_index()
+    def api_rebuild_search_index(force: bool = Query(False)):
+        return rag.refresh_index(force=force)
 
     @api_app.post("/api/chat")
     async def api_chat(request: Request):
