@@ -830,6 +830,10 @@ def create_api_app():
             return FileResponse(index)
         return HTMLResponse("<h1>HK Maintenance Portal</h1><p>web/index.html is missing.</p>")
 
+    @api_app.head("/")
+    def home_head():
+        return Response(status_code=200)
+
     @api_app.get("/favicon.ico")
     def favicon():
         return Response(status_code=204)
