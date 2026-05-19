@@ -3,6 +3,30 @@
     "k1": 1.5,
     "b": 0.75
   },
+  "synonyms": {
+    "synonyms": {}
+  },
+  "search": {
+    "weights": {
+      "bm25": 0.35,
+      "ngram": 0.2,
+      "embedding": 0.3,
+      "field_boost": 0.1,
+      "exact_match_boost": 0.05,
+      "recency_boost_max": 0.05
+    },
+    "candidate_limit": 50,
+    "field_boost_cap": 0.35,
+    "exact_phrase_boost": 0.05,
+    "compact_exact_phrase_boost": 0.03,
+    "field_boosts": {
+      "title": 0.3,
+      "filename": 0.25,
+      "folder": 0.2,
+      "heading": 0.15,
+      "body": 0.05
+    }
+  },
   "boost": {
     "title_per_hit": 0.12,
     "title_cap": 0.36,

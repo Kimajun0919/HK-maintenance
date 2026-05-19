@@ -8,6 +8,14 @@ class Chunk:
     text: str
     source: str
     title: str
+    document_id: str | None = None
+    chunk_id: str | None = None
+    heading: str | None = None
+    filename: str | None = None
+    folder: str | None = None
+    updated_at: str | None = None
+    normalized_body: str = ""
+    compact_body: str = ""
 
 
 @dataclass

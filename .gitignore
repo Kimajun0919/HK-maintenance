@@ -1,6 +1,7 @@
 hf_space_bundle/
 dist/
 backend/.venv/
+backend/.embedding_cache.json
 **/__pycache__/
 *.pyc
 *.pyo

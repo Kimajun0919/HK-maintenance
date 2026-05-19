@@ -1329,19 +1329,11 @@ def create_api_app():
 
     @api_app.get("/api/search")
     def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10)):
-        results, _context = rag.retrieve(q, top_k)
+        results = rag.search_documents(q, top_k)
         return {
             "query": q,
-            "answer": rag.source_based_answer(q, results),
-            "results": [
-                {
-                    "source": chunk.source,
-                    "title": chunk.title,
-                    "score": round(score, 4),
-                    "snippet": re.sub(r"\s+", " ", chunk.text).strip()[:700],
-                }
-                for chunk, score in results
-            ],
+            "answer": "",
+            "results": results,
         }
 
     @api_app.post("/api/chat")

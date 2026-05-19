@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json as _json
 import math
 import os
@@ -170,6 +171,58 @@ def tokenize_for_field(text: str) -> list[str]:
 # ──────────────────────────────────────────────
 
 
+def normalize_search_text(text: str) -> str:
+    """Normalize text for search without changing the original document content."""
+    text = (text or "").lower()
+    text = re.sub(r"a\s*[/.\-]?\s*s|에이에스", "as", text, flags=re.I)
+    text = re.sub(r"[^0-9a-z\uac00-\ud7a3\s]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def compact_search_text(text: str) -> str:
+    return re.sub(r"\s+", "", normalize_search_text(text))
+
+
+def word_tokens(text: str) -> list[str]:
+    return re.findall(r"[0-9a-z\uac00-\ud7a3]{1,}", normalize_search_text(text))
+
+
+def bm25_tokens(text: str) -> list[str]:
+    return [token for token in word_tokens(text) if len(token) >= 2 or token.isdigit()]
+
+
+def char_ngram_tokens(text: str) -> set[str]:
+    normalized = normalize_search_text(text)
+    compact = compact_search_text(text)
+    grams: set[str] = set(re.findall(r"[0-9a-z]+", normalized))
+    korean = re.sub(r"[^\uac00-\ud7a3]", "", normalized)
+    for value in (korean, compact):
+        for n in (2, 3):
+            grams.update(value[i : i + n] for i in range(max(0, len(value) - n + 1)))
+    return {gram for gram in grams if len(gram) >= 2}
+
+
+def jaccard_similarity(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def cosine_similarity(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right))
+    left_norm = math.sqrt(sum(a * a for a in left))
+    right_norm = math.sqrt(sum(b * b for b in right))
+    if not left_norm or not right_norm:
+        return 0.0
+    return dot / (left_norm * right_norm)
+
+
+def _stable_document_id(source: str) -> str:
+    return hashlib.sha1(source.encode("utf-8")).hexdigest()[:16]
+
+
 class BM25Okapi:
     """
     Okapi BM25 over a pre-tokenized corpus.
@@ -218,7 +271,7 @@ class BM25Okapi:
 # ──────────────────────────────────────────────
 
 
-def split_markdown(path: Path, text: str, max_chars: int = 1800, overlap: int = 250) -> list[Chunk]:
+def split_markdown(path: Path, text: str, max_chars: int = 1800, overlap: int = 250, updated_at: str | None = None) -> list[Chunk]:
     rel = path.relative_to(DOCS_DIR).as_posix()
     title_match = re.search(r"^#\s+(.+)$", text, flags=re.M)
     title = title_match.group(1).strip() if title_match else path.stem
@@ -253,7 +306,24 @@ def split_markdown(path: Path, text: str, max_chars: int = 1800, overlap: int = 
             end = min(start + max_chars, len(section))
             part = section[start:end].strip()
             if len(part) >= 80:
-                chunks.append(Chunk(text=part, source=rel, title=section_title))
+                chunk_no = len(chunks) + 1
+                folder = rel.rsplit("/", 1)[0] if "/" in rel else ""
+                document_id = _stable_document_id(rel)
+                chunks.append(
+                    Chunk(
+                        text=part,
+                        source=rel,
+                        title=title,
+                        document_id=document_id,
+                        chunk_id=f"{document_id}_chunk_{chunk_no:04d}",
+                        heading=section_title,
+                        filename=path.name,
+                        folder=folder,
+                        updated_at=updated_at,
+                        normalized_body=normalize_search_text(part),
+                        compact_body=compact_search_text(part),
+                    )
+                )
             if end == len(section):
                 break
             start = max(0, end - overlap)
@@ -266,7 +336,7 @@ def load_chunks() -> list[Chunk]:
         path = DOCS_DIR / record.source
         text = clean_text(record.content)
         if text:
-            chunks.extend(split_markdown(path, text))
+            chunks.extend(split_markdown(path, text, updated_at=record.updated_at))
     return chunks
 
 
@@ -291,21 +361,162 @@ def detect_intent(query: str) -> str:
 # ──────────────────────────────────────────────
 
 
+def expand_query_terms(query: str) -> dict:
+    cfg = _SETTINGS.get("synonyms", {}) if "_SETTINGS" in globals() else {}
+    synonyms = cfg.get("synonyms", {}) if isinstance(cfg, dict) else {}
+    normalized_query = normalize_search_text(query)
+    terms = word_tokens(normalized_query)
+    expanded: list[dict] = []
+    seen: set[str] = set()
+    if isinstance(synonyms, dict) and synonyms:
+        for term in terms:
+            for synonym in synonyms.get(term, []) or []:
+                normalized_synonym = normalize_search_text(str(synonym))
+                if normalized_synonym and normalized_synonym not in seen and normalized_synonym not in terms:
+                    seen.add(normalized_synonym)
+                    expanded.append({"term": normalized_synonym, "weight": 0.6, "source": term})
+    return {
+        "normalized_query": normalized_query,
+        "terms": terms,
+        "expanded_terms": expanded,
+        "synonym_used": bool(expanded),
+    }
+
+
+def calculate_recency_boost(updated_at: str | None, max_boost: float = 0.05) -> float:
+    if not updated_at or max_boost <= 0:
+        return 0.0
+    try:
+        from datetime import datetime, timezone
+
+        value = updated_at.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        age_days = max(0.0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds() / 86400)
+        return max(0.0, max_boost * (1.0 - min(age_days, 365.0) / 365.0))
+    except Exception:
+        return 0.0
+
+
+class EmbeddingStore:
+    """
+    Stores deterministic chunk embeddings keyed by chunk content hash.
+    If a local embedding model is not configured, a hashed lexical embedding is used
+    so reranking remains cached and dependency-free.
+    """
+
+    def __init__(self, dim: int = 256) -> None:
+        self.dim = dim
+        self.vectors: dict[str, list[float]] = {}
+        self.hashes: dict[str, str] = {}
+        self.cache_path = Path(__file__).parent / ".embedding_cache.json"
+        self.dirty = False
+        self._load()
+
+    def _load(self) -> None:
+        if not self.cache_path.exists():
+            return
+        try:
+            with self.cache_path.open(encoding="utf-8") as f:
+                payload = _json.load(f)
+            if int(payload.get("dim", self.dim)) != self.dim:
+                return
+            self.hashes = {str(k): str(v) for k, v in payload.get("hashes", {}).items()}
+            self.vectors = {
+                str(k): [float(x) for x in v]
+                for k, v in payload.get("vectors", {}).items()
+                if isinstance(v, list) and len(v) == self.dim
+            }
+        except Exception:
+            self.hashes = {}
+            self.vectors = {}
+
+    def save(self) -> None:
+        if not self.dirty:
+            return
+        try:
+            with self.cache_path.open("w", encoding="utf-8") as f:
+                _json.dump({"dim": self.dim, "hashes": self.hashes, "vectors": self.vectors}, f)
+            self.dirty = False
+        except Exception:
+            pass
+
+    def text_hash(self, text: str) -> str:
+        return hashlib.sha256(normalize_search_text(text).encode("utf-8")).hexdigest()
+
+    def embed_text(self, text: str) -> list[float]:
+        vector = [0.0] * self.dim
+        tokens = bm25_tokens(text) + list(char_ngram_tokens(text))
+        for token in tokens:
+            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+            idx = int.from_bytes(digest[:4], "big") % self.dim
+            sign = 1.0 if digest[4] % 2 == 0 else -1.0
+            vector[idx] += sign
+        norm = math.sqrt(sum(v * v for v in vector))
+        if norm:
+            vector = [v / norm for v in vector]
+        return vector
+
+    def get_chunk_embedding(self, chunk: Chunk) -> list[float]:
+        chunk_id = chunk.chunk_id or f"{chunk.source}:{chunk.title}:{hashlib.sha1(chunk.text.encode('utf-8')).hexdigest()[:12]}"
+        content = "\n".join([chunk.title, chunk.heading or "", chunk.source, chunk.text])
+        content_hash = self.text_hash(content)
+        if self.hashes.get(chunk_id) != content_hash:
+            self.vectors[chunk_id] = self.embed_text(content)
+            self.hashes[chunk_id] = content_hash
+            self.dirty = True
+        return self.vectors[chunk_id]
+
+
 class Retriever:
     def __init__(self, chunks: list[Chunk]) -> None:
         self.chunks = chunks
 
-        # BM25 index over body text
-        body_corpus = [tokenize(c.text) for c in chunks]
+        # BM25 index over normalized chunk body + important metadata fields.
+        body_corpus = [bm25_tokens(self._searchable_text(c)) for c in chunks]
         self.bm25: BM25Okapi | None = BM25Okapi(body_corpus) if chunks else None
 
-        # Pre-tokenized fields for field-aware boost computation
-        self.title_tokens = [tokenize_for_field(c.title) for c in chunks]
-        self.source_tokens = [tokenize_for_field(c.source) for c in chunks]
+        self.normalized_fields = [self._normalized_fields(c) for c in chunks]
+        self.ngram_sets = [char_ngram_tokens(self._searchable_text(c)) for c in chunks]
+        self.embedding_store = EmbeddingStore()
+        self.embeddings = [self.embedding_store.get_chunk_embedding(c) for c in chunks]
+        self.embedding_store.save()
+        self.last_score_details: dict[str, dict] = {}
 
         # Legacy cosine index — kept for fallback if BM25 raises unexpectedly
         self.vectors = [self._legacy_vector(f"{c.title}\n{c.source}\n{c.text}") for c in chunks]
         self.norms = [self._legacy_norm(v) for v in self.vectors]
+
+    @staticmethod
+    def _searchable_text(chunk: Chunk) -> str:
+        return "\n".join(
+            [
+                chunk.title or "",
+                chunk.heading or "",
+                chunk.filename or "",
+                chunk.folder or "",
+                chunk.source or "",
+                chunk.text or "",
+            ]
+        )
+
+    @staticmethod
+    def _normalized_fields(chunk: Chunk) -> dict[str, str]:
+        folder = chunk.folder if chunk.folder is not None else (chunk.source.rsplit("/", 1)[0] if "/" in chunk.source else "")
+        filename = chunk.filename if chunk.filename is not None else chunk.source.rsplit("/", 1)[-1]
+        return {
+            "title": normalize_search_text(chunk.title),
+            "filename": normalize_search_text(filename),
+            "folder": normalize_search_text(folder),
+            "heading": normalize_search_text(chunk.heading or chunk.title),
+            "body": normalize_search_text(chunk.text),
+            "compact_title": compact_search_text(chunk.title),
+            "compact_filename": compact_search_text(filename),
+            "compact_folder": compact_search_text(folder),
+            "compact_heading": compact_search_text(chunk.heading or chunk.title),
+            "compact_body": compact_search_text(chunk.text),
+        }
 
     # ── Legacy cosine helpers ──────────────────────────────────────────────
 
@@ -381,6 +592,97 @@ class Retriever:
 
     # ── BM25 + field-aware two-stage search ───────────────────────────────
 
+    def _hybrid_search(
+        self,
+        query: str,
+        top_k: int = 5,
+        candidate_k: int = 40,
+        debug: bool = False,
+    ) -> list[tuple[Chunk, float]]:
+        search_cfg = _SETTINGS.get("search", _DEFAULT_SETTINGS["search"])
+        weights = search_cfg.get("weights", _DEFAULT_SETTINGS["search"]["weights"])
+        field_cfg = search_cfg.get("field_boosts", _DEFAULT_SETTINGS["search"]["field_boosts"])
+        candidate_k = int(search_cfg.get("candidate_limit", candidate_k) or candidate_k)
+        candidate_k = max(1, min(candidate_k, len(self.chunks)))
+
+        query_info = expand_query_terms(query)
+        query_text = " ".join([query_info["normalized_query"]] + [item["term"] for item in query_info["expanded_terms"]])
+        query_tokens = bm25_tokens(query_text)
+        original_terms = set(word_tokens(query))
+        expanded_terms = {item["term"] for item in query_info["expanded_terms"]}
+        query_ngrams = char_ngram_tokens(query_text)
+        query_embedding = self.embedding_store.embed_text(query_text)
+        normalized_query = query_info["normalized_query"]
+        compact_query = compact_search_text(query)
+
+        try:
+            bm25_scores = self.bm25.get_scores(query_tokens) if self.bm25 else []
+        except Exception:
+            return self._cosine_fallback(query, top_k)
+        max_bm25 = max(bm25_scores) if bm25_scores else 1.0
+        if max_bm25 <= 0:
+            max_bm25 = 1.0
+        ngram_scores = [jaccard_similarity(query_ngrams, grams) for grams in self.ngram_sets]
+        candidate_indices = sorted(
+            range(len(self.chunks)),
+            key=lambda i: (bm25_scores[i] / max_bm25) * 0.65 + ngram_scores[i] * 0.35,
+            reverse=True,
+        )[:candidate_k]
+
+        scored: list[tuple[int, float]] = []
+        self.last_score_details = {}
+        for idx in candidate_indices:
+            chunk = self.chunks[idx]
+            fields = self.normalized_fields[idx]
+            bm25_norm = bm25_scores[idx] / max_bm25
+            ngram_score = ngram_scores[idx]
+            embedding_score = max(0.0, min(1.0, (cosine_similarity(query_embedding, self.embeddings[idx]) + 1.0) / 2.0))
+
+            field_raw = 0.0
+            for field_name, boost in field_cfg.items():
+                field_text = fields.get(field_name, "")
+                if any(term and term in field_text for term in original_terms):
+                    field_raw += float(boost)
+                elif any(term and term in field_text for term in expanded_terms):
+                    field_raw += float(boost) * 0.6
+            field_boost = min(field_raw, float(search_cfg.get("field_boost_cap", 0.35)))
+
+            full_text = " ".join(fields.get(k, "") for k in ("title", "filename", "folder", "heading", "body"))
+            full_compact = "".join(fields.get(k, "") for k in ("compact_title", "compact_filename", "compact_folder", "compact_heading", "compact_body"))
+            exact_match_boost = 0.0
+            if normalized_query and normalized_query in full_text:
+                exact_match_boost += float(search_cfg.get("exact_phrase_boost", 0.05))
+            if compact_query and len(compact_query) >= 2 and compact_query in full_compact:
+                exact_match_boost += float(search_cfg.get("compact_exact_phrase_boost", 0.03))
+            exact_match_boost = min(exact_match_boost, 0.08)
+
+            recency_boost = calculate_recency_boost(chunk.updated_at, float(weights.get("recency_boost_max", 0.05)))
+            final_score = (
+                bm25_norm * float(weights.get("bm25", 0.35))
+                + ngram_score * float(weights.get("ngram", 0.20))
+                + embedding_score * float(weights.get("embedding", 0.30))
+                + field_boost * float(weights.get("field_boost", 0.10))
+                + exact_match_boost * float(weights.get("exact_match_boost", 0.05))
+                + recency_boost
+            )
+            detail = {
+                "bm25": round(bm25_norm, 4),
+                "ngram": round(ngram_score, 4),
+                "embedding": round(embedding_score, 4),
+                "field_boost": round(field_boost, 4),
+                "exact_match_boost": round(exact_match_boost, 4),
+                "recency_boost": round(recency_boost, 4),
+                "synonym_used": query_info["synonym_used"],
+                "expanded_terms": [item["term"] for item in query_info["expanded_terms"]],
+            }
+            self.last_score_details[chunk.chunk_id or str(idx)] = detail
+            if debug:
+                print(f"[RAG_DEBUG] idx={idx} final={final_score:.3f} detail={detail}")
+            scored.append((idx, final_score))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [(self.chunks[idx], score) for idx, score in scored[:top_k] if score > 0]
+
     def search(
         self,
         query: str,
@@ -392,6 +694,7 @@ class Retriever:
             return []
         if self.bm25 is None:
             return self._cosine_fallback(query, top_k)
+        return self._hybrid_search(query, top_k=top_k, candidate_k=candidate_k, debug=debug)
 
         expanded_query = self._expand_query(query)
         query_tokens = tokenize(expanded_query)
@@ -892,6 +1195,28 @@ _SETTINGS_FILE = Path(__file__).parent / "settings.json"
 
 _DEFAULT_SETTINGS: dict = {
     "bm25": {"k1": 1.5, "b": 0.75},
+    "synonyms": {"synonyms": {}},
+    "search": {
+        "weights": {
+            "bm25": 0.35,
+            "ngram": 0.20,
+            "embedding": 0.30,
+            "field_boost": 0.10,
+            "exact_match_boost": 0.05,
+            "recency_boost_max": 0.05,
+        },
+        "candidate_limit": 50,
+        "field_boost_cap": 0.35,
+        "exact_phrase_boost": 0.05,
+        "compact_exact_phrase_boost": 0.03,
+        "field_boosts": {
+            "title": 0.30,
+            "filename": 0.25,
+            "folder": 0.20,
+            "heading": 0.15,
+            "body": 0.05,
+        },
+    },
     "boost": {
         "title_per_hit": 0.12,
         "title_cap": 0.36,
@@ -1035,6 +1360,48 @@ def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
     results = retriever.search(query, top_k=top_k, candidate_k=candidate_k, debug=_RAG_DEBUG)
     context = build_context(results)
     return results, context
+
+
+def search_documents(query: str, top_k: int = 5) -> list[dict]:
+    """Return document-level grouped hybrid search results with score details."""
+    query = query.strip()
+    if not query:
+        return []
+    candidate_top_k = max(top_k * 4, top_k)
+    intent = detect_intent(query)
+    candidate_k = INTENT_CONFIG[intent]["candidate_k"]
+    chunk_results = retriever.search(query, top_k=candidate_top_k, candidate_k=candidate_k, debug=_RAG_DEBUG)
+
+    grouped: dict[str, dict] = {}
+    for chunk, score in chunk_results:
+        document_id = chunk.document_id or _stable_document_id(chunk.source)
+        detail = retriever.last_score_details.get(chunk.chunk_id or "", {})
+        item = {
+            "chunk_id": chunk.chunk_id,
+            "heading": chunk.heading or chunk.title,
+            "matched_text": re.sub(r"\s+", " ", chunk.text).strip()[:700],
+            "score": round(score, 4),
+            "score_detail": detail,
+        }
+        if document_id not in grouped:
+            grouped[document_id] = {
+                "document_id": document_id,
+                "title": chunk.title,
+                "filename": chunk.filename or chunk.source.rsplit("/", 1)[-1],
+                "folder": chunk.folder if chunk.folder is not None else (chunk.source.rsplit("/", 1)[0] if "/" in chunk.source else ""),
+                "source": chunk.source,
+                "matched_heading": chunk.heading or chunk.title,
+                "matched_text": item["matched_text"],
+                "snippet": item["matched_text"],
+                "score": round(score, 4),
+                "score_detail": detail,
+                "related_chunks": [],
+            }
+        else:
+            grouped[document_id]["related_chunks"].append(item)
+
+    results = sorted(grouped.values(), key=lambda item: item["score"], reverse=True)
+    return results[:top_k]
 
 
 def retrieve_for_llm(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
