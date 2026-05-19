@@ -757,8 +757,8 @@ class Retriever:
             "embedding_available": embedding_available,
             "embedding_model": EMBEDDING_MODEL_NAME if embedding_available else None,
         }
-        debug_candidates: dict[str, list[dict]] = {"bm25": [], "ngram": [], "vector": []}
-        final_debug_results: list[dict] = []
+        debug_candidates: dict[str, list[dict]] = {"bm25": [], "ngram": [], "vector": []} if debug else {}
+        final_debug_results: list[dict] = [] if debug else []
         for idx in candidate_indices:
             chunk = self.chunks[idx]
             fields = self.normalized_fields[idx]
@@ -832,22 +832,24 @@ class Retriever:
                 print(f"[RAG_DEBUG] idx={idx} final={final_score:.3f} detail={detail}")
             scored.append((idx, ranking_score))
 
-            debug_item = self._debug_candidate_item(chunk, detail, final_score)
-            if idx in bm25_indices:
-                debug_candidates["bm25"].append(debug_item)
-            if idx in ngram_indices:
-                debug_candidates["ngram"].append(debug_item)
-            if idx in vector_indices:
-                debug_candidates["vector"].append(debug_item)
-            final_debug_results.append(debug_item)
+            if debug:
+                debug_item = self._debug_candidate_item(chunk, detail, final_score)
+                if idx in bm25_indices:
+                    debug_candidates["bm25"].append(debug_item)
+                if idx in ngram_indices:
+                    debug_candidates["ngram"].append(debug_item)
+                if idx in vector_indices:
+                    debug_candidates["vector"].append(debug_item)
+                final_debug_results.append(debug_item)
 
         scored.sort(key=lambda x: x[1], reverse=True)
-        self.last_debug["candidates"] = {
-            "bm25": sorted(debug_candidates["bm25"], key=lambda item: item["bm25_score"], reverse=True)[:10],
-            "ngram": sorted(debug_candidates["ngram"], key=lambda item: item["ngram_score"], reverse=True)[:10],
-            "vector": sorted(debug_candidates["vector"], key=lambda item: item["embedding_score"], reverse=True)[:10],
-        }
-        self.last_debug["final_results"] = sorted(final_debug_results, key=lambda item: item["final_score"], reverse=True)[:10]
+        if debug:
+            self.last_debug["candidates"] = {
+                "bm25": sorted(debug_candidates["bm25"], key=lambda item: item["bm25_score"], reverse=True)[:10],
+                "ngram": sorted(debug_candidates["ngram"], key=lambda item: item["ngram_score"], reverse=True)[:10],
+                "vector": sorted(debug_candidates["vector"], key=lambda item: item["embedding_score"], reverse=True)[:10],
+            }
+            self.last_debug["final_results"] = sorted(final_debug_results, key=lambda item: item["final_score"], reverse=True)[:10]
         return [(self.chunks[idx], score) for idx, score in scored[:top_k] if score > 0]
 
     @staticmethod
@@ -1726,6 +1728,36 @@ def retrieve_for_llm(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]],
 # ──────────────────────────────────────────────
 # Answer functions
 # ──────────────────────────────────────────────
+
+
+def immediate_answer_with_sources(query: str, top_k: int) -> tuple[str, list[tuple[Chunk, float]]]:
+    query = query.strip()
+    if not query:
+        return "질문을 입력해 주세요.", []
+
+    results, context = retrieve(query, top_k)
+    if not context:
+        return "관련 문서를 찾지 못했습니다. 고객사명, 오류명, 서버/계정/작업명을 포함해 다시 질문해 주세요.", results
+
+    return source_based_answer(query, results), results
+
+
+def llm_answer_with_sources(query: str, top_k: int) -> tuple[str, list[tuple[Chunk, float]]]:
+    results, context = retrieve_for_llm(query, top_k)
+    if not context:
+        return "관련 문서를 찾지 못했습니다. 고객사명, 오류명, 서버/계정/작업명을 포함해 다시 질문해 주세요.", results
+
+    prompt = _build_llm_user_prompt(query, context)
+    llm = get_llm()
+    generated = llm.generate(prompt)
+    if not generated:
+        generated = source_based_answer(query, results)
+
+    sources = "\n".join(
+        f"- `{chunk.source}` / {chunk.title} / score={score:.3f}"
+        for chunk, score in results
+    )
+    return f"{generated}\n\n---\n참고 문서:\n{sources}", results
 
 
 def immediate_answer(query: str, top_k: int) -> str:

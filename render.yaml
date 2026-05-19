@@ -13,6 +13,8 @@ services:
         value: "8080"
       - key: APP_HOST
         value: "0.0.0.0"
+      - key: USE_LLM
+        value: "0"
       - key: EMBEDDING_BACKEND
         value: none
       - key: SUPABASE_DB_URL

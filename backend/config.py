@@ -17,7 +17,7 @@ if not DEFAULT_DOCS_DIR.exists():
 
 DOCS_DIR = Path(os.getenv("DOCS_DIR", DEFAULT_DOCS_DIR)).resolve()
 MODEL_NAME = os.getenv("LOCAL_LLM_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
-USE_LLM = os.getenv("USE_LLM", "1") != "0"
+USE_LLM = os.getenv("USE_LLM", "0") != "0"
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "512"))
 DEFAULT_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")
 ANTHROPIC_API_URL = os.getenv("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")

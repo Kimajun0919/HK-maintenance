@@ -120,6 +120,54 @@ def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
     return f"{generated}\n\n---\n참고 문서:\n{sources}"
 
 
+def claude_answer_with_sources(query: str, top_k: int, api_key: str, model: str):
+    api_key = api_key.strip()
+    model = (model or DEFAULT_CLAUDE_MODEL).strip()
+    if not api_key:
+        return "Claude API 키를 입력해야 합니다.", []
+    results, context = rag.retrieve_for_llm(query, top_k)
+    if not context:
+        return "관련 문서를 찾지 못했습니다. 고객사명, 작업명, 서버/계정/경로 같은 단어를 포함해 다시 질문해 주세요.", results
+
+    sources = "\n".join(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}" for chunk, score in results)
+    prompt = rag._build_llm_user_prompt(query, context)
+    payload = {
+        "model": model,
+        "max_tokens": MAX_NEW_TOKENS,
+        "system": rag.SYSTEM_INSTRUCTION_KO,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if not _is_http_url(ANTHROPIC_API_URL):
+        return "Claude API URL은 http 또는 https URL이어야 합니다.", results
+    request = urllib.request.Request(
+        ANTHROPIC_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "content-type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:  # nosec B310
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return f"Claude API 오류({exc.code}): {body[:700]}", results
+    except Exception as exc:
+        return f"Claude API 호출 실패: {exc}", results
+
+    parts = []
+    for block in data.get("content", []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(str(block.get("text", "")).strip())
+    generated = "\n\n".join(part for part in parts if part)
+    if not generated:
+        generated = rag.source_based_answer(query, results)
+    return f"{generated}\n\n---\n참고 문서:\n{sources}", results
+
+
 def _join_api_url(base_url: str, chat_path: str) -> str:
     base_url = (base_url or "https://api.openai.com/v1").strip().rstrip("/")
     chat_path = (chat_path or "/chat/completions").strip() or "/chat/completions"
@@ -250,6 +298,69 @@ def openai_compatible_answer(query: str, top_k: int, api_key: str, base_url: str
         else:
             generated = rag.source_based_answer(query, results)
     return f"{generated}\n\n---\n참고 문서:\n{sources}"
+
+
+def openai_compatible_answer_with_sources(query: str, top_k: int, api_key: str, base_url: str, model: str,
+                                          auth_header: str = "", chat_path: str = ""):
+    base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
+    model = (model or "gpt-4o-mini").strip()
+    request_url = _join_api_url(base_url, chat_path)
+    if not _is_http_url(request_url):
+        return "OpenAI-compatible API URL은 http 또는 https URL이어야 합니다.", []
+    results, context = rag.retrieve_for_llm(query, top_k)
+    if not context:
+        return "관련 문서를 찾지 못했습니다. 고객사명, 작업명, 서버/계정/경로 같은 단어를 포함해 다시 질문해 주세요.", results
+
+    sources = "\n".join(f"- `{chunk.source}` / {chunk.title} / score={score:.3f}" for chunk, score in results)
+    prompt = rag._build_llm_user_prompt(query, context)
+    model_lower = model.lower()
+    max_tokens = MAX_NEW_TOKENS
+    if any(name in model_lower for name in ("glm", "deepseek-r1", "r1")):
+        max_tokens = max(max_tokens, 2048)
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [
+            {"role": "system", "content": rag.SYSTEM_INSTRUCTION_KO},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    headers: dict[str, str] = {"content-type": "application/json"}
+    if api_key.strip():
+        key = api_key.strip()
+        if auth_header.strip():
+            header_name = auth_header.strip().lower()
+            headers[header_name] = f"Bearer {key}" if header_name == "authorization" and not key.lower().startswith("bearer ") else key
+        else:
+            headers["authorization"] = f"Bearer {key}"
+    request = urllib.request.Request(
+        request_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:  # nosec B310
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return f"API 오류({exc.code}): {body[:700]}", results
+    except Exception as exc:
+        return f"API 호출 실패: {exc}", results
+
+    generated, reasoning, finish_reason = _extract_openai_compatible_text(data)
+    if not generated:
+        if reasoning:
+            generated = (
+                "모델이 최종 답변(content)을 비워두고 추론(reasoning)만 반환했습니다.\n\n"
+                f"- 모델: `{model}`\n"
+                f"- 종료 사유: `{finish_reason or 'unknown'}`\n"
+                "- 조치: `qwen2.5:7b`, `hermes3:latest`처럼 content를 바로 반환하는 모델을 쓰거나, "
+                "`MAX_NEW_TOKENS`를 더 크게 설정한 뒤 서버를 재시작해 주세요."
+            )
+        else:
+            generated = rag.source_based_answer(query, results)
+    return f"{generated}\n\n---\n참고 문서:\n{sources}", results
 
 
 def build_demo():
@@ -1355,14 +1466,14 @@ def create_api_app():
             return _json_response({"error": "query is required"}, status_code=400)
         provider = str(payload.get("provider", "local")).strip().lower()
         if provider == "claude":
-            response = claude_answer(
+            response, results = claude_answer_with_sources(
                 query,
                 top_k,
                 str(payload.get("apiKey", "")),
                 str(payload.get("model", DEFAULT_CLAUDE_MODEL)),
             )
         elif provider == "openai":
-            response = openai_compatible_answer(
+            response, results = openai_compatible_answer_with_sources(
                 query,
                 top_k,
                 str(payload.get("apiKey", "")),
@@ -1372,10 +1483,9 @@ def create_api_app():
                 chat_path=str(payload.get("chatPath", "")),
             )
         elif provider == "quick":
-            response = rag.immediate_answer(query, top_k)
+            response, results = rag.immediate_answer_with_sources(query, top_k)
         else:
-            response = rag.llm_answer(query, top_k) if USE_LLM else rag.immediate_answer(query, top_k)
-        results, _context = rag.retrieve(query, top_k)
+            response, results = rag.llm_answer_with_sources(query, top_k) if USE_LLM else rag.immediate_answer_with_sources(query, top_k)
         return {
             "query": query,
             "answer": response,
