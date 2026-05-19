@@ -827,7 +827,20 @@ export function App() {
           setLoading("search");
           setError("");
           api("/api/search?q=" + encodeURIComponent(term) + "&top_k=5")
-            .then(setSearch)
+            .then((data) => {
+              const results = data.results || [];
+              const fallbackAnswer = results.length
+                ? [
+                    "## 검색 결과",
+                    "",
+                    "검색 답변을 생성하지 못했지만 관련 문서를 찾았습니다.",
+                    "",
+                    "### 참고 문서",
+                    ...results.map((item) => "- `" + item.source + "` / " + item.title + " / score=" + item.score),
+                  ].join("\n")
+                : "관련 문서를 찾지 못했습니다.";
+              setSearch({ ...data, answer: data.answer || fallbackAnswer, results });
+            })
             .catch((err) => setError(err.message))
             .finally(() => setLoading(""));
         };
