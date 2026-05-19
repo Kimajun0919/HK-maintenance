@@ -225,7 +225,13 @@ n-gram: 물이, 이새, 새요, 물이새, 이새요 ...
 | 검색 시 계산 범위 | BM25 + n-gram 상위 후보 |
 | 유사도 | cosine similarity |
 
-현재 기본 `EmbeddingStore`는 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 모델을 사용한다. 이 모델은 한국어를 포함한 다국어 문장 임베딩을 384차원 벡터로 생성한다. 모델 로딩이 불가능한 개발 환경에서는 검색 기능이 완전히 중단되지 않도록 deterministic hashed vector로 fallback한다.
+`EmbeddingStore`는 선택적으로 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 모델을 사용할 수 있다. 이 모델은 한국어를 포함한 다국어 문장 임베딩을 384차원 벡터로 생성한다. 운영 Docker 이미지는 Render free tier 메모리와 빌드 시간을 줄이기 위해 `sentence-transformers`를 기본 설치하지 않는다. 로컬에서 벡터 인덱스를 재생성할 때만 다음을 설치한다.
+
+```bash
+pip install -r backend/requirements-embeddings.txt
+```
+
+모델 로딩이 불가능하거나 `EMBEDDING_BACKEND=none`인 환경에서는 검색 기능이 완전히 중단되지 않도록 BM25/n-gram 기반으로 동작한다.
 
 Supabase 사용 시 `pgvector` 확장을 활성화하고, 청크 단위 검색 인덱스를 별도 테이블에 저장한다.
 
