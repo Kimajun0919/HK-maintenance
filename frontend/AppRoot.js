@@ -32,6 +32,7 @@ export function App() {
         const [activeTool, setActiveTool] = React.useState("search");
         const [searchQuery, setSearchQuery] = React.useState("");
         const [search, setSearch] = React.useState(null);
+        const searchRequestSeq = React.useRef(0);
         const [chatQuery, setChatQuery] = React.useState("");
         const [chatAnswer, setChatAnswer] = React.useState("");
         const [chatResults, setChatResults] = React.useState([]);
@@ -824,10 +825,14 @@ export function App() {
           event && event.preventDefault();
           const term = searchQuery.trim();
           if (!term) return;
+          const requestSeq = searchRequestSeq.current + 1;
+          searchRequestSeq.current = requestSeq;
           setLoading("search");
           setError("");
+          setSearch(null);
           api("/api/search?q=" + encodeURIComponent(term) + "&top_k=5")
             .then((data) => {
+              if (requestSeq !== searchRequestSeq.current) return;
               const results = data.results || [];
               const fallbackAnswer = results.length
                 ? [
@@ -842,7 +847,9 @@ export function App() {
               setSearch({ ...data, answer: data.answer || fallbackAnswer, results });
             })
             .catch((err) => setError(err.message))
-            .finally(() => setLoading(""));
+            .finally(() => {
+              if (requestSeq === searchRequestSeq.current) setLoading("");
+            });
         };
 
         const compactSearchSnippet = (snippet, query) => {
@@ -2157,8 +2164,8 @@ export function App() {
                   h("section", { className: "search-pane" },
                     h("div", { className: "section-title" }, "참고자료"),
                     h("div", { className: "search-results" },
-                      search.results.map((item) => h("button", {
-                        key: item.source + item.title,
+                      search.results.map((item, idx) => h("button", {
+                        key: (item.chunk_id || item.source || "") + "|" + (item.title || "") + "|" + idx,
                         className: "result-item",
                         onClick: () => openDoc(item.source)
                       },
@@ -2239,8 +2246,8 @@ export function App() {
                   h("section", { className: "search-pane" },
                     h("div", { className: "section-title" }, "참고자료"),
                     h("div", { className: "search-results" },
-                      chatResults.map((item) => h("button", {
-                        key: item.source + item.title,
+                      chatResults.map((item, idx) => h("button", {
+                        key: (item.chunk_id || item.source || "") + "|" + (item.title || "") + "|" + idx,
                         className: "result-item",
                         onClick: () => openDoc(item.source)
                       },

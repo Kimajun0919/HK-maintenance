@@ -36,6 +36,7 @@ from config import (
 )
 from converters import _convert_docx_to_md, _convert_pdf_to_md, _convert_xlsx_to_md
 from models import AssetRecord, DocRecord, FolderRecord
+from maintenance_requests import search_maintenance_requests
 
 from storage import (
     _db_asset_count,
@@ -1497,6 +1498,13 @@ def create_api_app():
             "answer": answer,
             "results": results,
         }
+
+    @api_app.get("/api/maintenance-requests/search")
+    def api_maintenance_requests_search(q: str = Query("", min_length=0), limit: int = Query(10, ge=1, le=50)):
+        try:
+            return {"query": q, "results": search_maintenance_requests(q, limit)}
+        except Exception as exc:
+            return _json_response({"error": str(exc)}, status_code=500)
 
     @api_app.post("/api/search-index/rebuild")
     def api_rebuild_search_index(force: bool = Query(False)):
