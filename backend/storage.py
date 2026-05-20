@@ -183,7 +183,8 @@ def _init_supabase_storage() -> None:
                         create table if not exists {SUPABASE_CHUNKS_TABLE} (
                             chunk_id text primary key,
                             document_id text not null,
-                            source text not null,
+                            document_pk bigint references {SUPABASE_DOCS_TABLE}(id) on delete cascade,
+                            source text not null references {SUPABASE_DOCS_TABLE}(source) on update cascade on delete cascade,
                             title text not null,
                             filename text not null default '',
                             folder text not null default '',
@@ -198,7 +199,53 @@ def _init_supabase_storage() -> None:
                         )
                         """
                     )
+                    cur.execute(f"alter table {SUPABASE_CHUNKS_TABLE} add column if not exists document_pk bigint")
+                    cur.execute(
+                        f"""
+                        delete from {SUPABASE_CHUNKS_TABLE} c
+                        where not exists (
+                            select 1 from {SUPABASE_DOCS_TABLE} d where d.source = c.source
+                        )
+                        """
+                    )
+                    cur.execute(
+                        f"""
+                        update {SUPABASE_CHUNKS_TABLE} c
+                        set document_pk = d.id
+                        from {SUPABASE_DOCS_TABLE} d
+                        where c.source = d.source and c.document_pk is distinct from d.id
+                        """
+                    )
+                    cur.execute(
+                        f"""
+                        do $$
+                        begin
+                            if not exists (
+                                select 1 from pg_constraint
+                                where conname = '{SUPABASE_CHUNKS_TABLE}_source_fkey'
+                            ) then
+                                alter table {SUPABASE_CHUNKS_TABLE}
+                                add constraint {SUPABASE_CHUNKS_TABLE}_source_fkey
+                                foreign key (source)
+                                references {SUPABASE_DOCS_TABLE}(source)
+                                on update cascade
+                                on delete cascade;
+                            end if;
+                            if not exists (
+                                select 1 from pg_constraint
+                                where conname = '{SUPABASE_CHUNKS_TABLE}_document_pk_fkey'
+                            ) then
+                                alter table {SUPABASE_CHUNKS_TABLE}
+                                add constraint {SUPABASE_CHUNKS_TABLE}_document_pk_fkey
+                                foreign key (document_pk)
+                                references {SUPABASE_DOCS_TABLE}(id)
+                                on delete cascade;
+                            end if;
+                        end $$;
+                        """
+                    )
                     cur.execute(f"create index if not exists {SUPABASE_CHUNKS_TABLE}_document_id_idx on {SUPABASE_CHUNKS_TABLE} (document_id)")
+                    cur.execute(f"create index if not exists {SUPABASE_CHUNKS_TABLE}_document_pk_idx on {SUPABASE_CHUNKS_TABLE} (document_pk)")
                     cur.execute(f"create index if not exists {SUPABASE_CHUNKS_TABLE}_source_idx on {SUPABASE_CHUNKS_TABLE} (source)")
                     cur.execute(f"create index if not exists {SUPABASE_CHUNKS_TABLE}_body_hash_idx on {SUPABASE_CHUNKS_TABLE} (body_hash)")
                     cur.execute(
@@ -533,6 +580,16 @@ def _db_rename_folder(old_name: str, new_name: str) -> None:
                 """,
                 (new_prefix, len(old_prefix) + 1, f"{old_prefix}%"),
             )
+            cur.execute(
+                f"""
+                update {SUPABASE_CHUNKS_TABLE}
+                set source = %s || substring(source from %s),
+                    folder = %s,
+                    indexed_at = now()
+                where source like %s
+                """,
+                (new_prefix, len(old_prefix) + 1, new_name, f"{old_prefix}%"),
+            )
 
 
 def _db_soft_delete_folder_docs(folder_name: str) -> int:
@@ -634,6 +691,14 @@ def _db_delete_chunks_for_source(source: str) -> None:
             cur.execute(f"delete from {SUPABASE_CHUNKS_TABLE} where source = %s", (source,))
 
 
+def _db_delete_chunks_for_folder(folder_name: str) -> int:
+    prefix = f"{folder_name}/"
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"delete from {SUPABASE_CHUNKS_TABLE} where source like %s", (f"{prefix}%",))
+            return cur.rowcount
+
+
 def _db_delete_stale_chunks(valid_chunk_ids: list[str]) -> int:
     with _db_connect() as conn:
         with conn.cursor() as cur:
@@ -651,38 +716,80 @@ def _db_existing_chunk_hashes() -> dict[str, str]:
             return {row[0]: row[1] for row in cur.fetchall()}
 
 
+_CHUNKS_HAS_DOCUMENT_PK: bool | None = None
+
+
+def _db_chunks_has_document_pk() -> bool:
+    global _CHUNKS_HAS_DOCUMENT_PK
+    if _CHUNKS_HAS_DOCUMENT_PK is not None:
+        return _CHUNKS_HAS_DOCUMENT_PK
+    try:
+        with _db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select 1
+                    from information_schema.columns
+                    where table_schema = current_schema()
+                      and table_name = %s
+                      and column_name = 'document_pk'
+                    """,
+                    (SUPABASE_CHUNKS_TABLE,),
+                )
+                _CHUNKS_HAS_DOCUMENT_PK = cur.fetchone() is not None
+    except Exception:
+        _CHUNKS_HAS_DOCUMENT_PK = False
+    return _CHUNKS_HAS_DOCUMENT_PK
+
+
 def _db_upsert_search_chunks(rows: list[dict]) -> int:
     if not rows:
         return 0
-    payload = [
-        (
+    has_document_pk = _db_chunks_has_document_pk()
+    payload = []
+    for row in rows:
+        values = [
             row["chunk_id"],
             row["document_id"],
-            row["source"],
-            row["title"],
-            row.get("filename", ""),
-            row.get("folder", ""),
-            row.get("heading", ""),
-            row["body"],
-            row.get("normalized_body", ""),
-            row.get("compact_body", ""),
-            row["body_hash"],
-            _vector_literal(row["embedding"]),
-            row.get("updated_at"),
+        ]
+        if has_document_pk:
+            values.append(row["source"])
+        values.extend(
+            [
+                row["source"],
+                row["title"],
+                row.get("filename", ""),
+                row.get("folder", ""),
+                row.get("heading", ""),
+                row["body"],
+                row.get("normalized_body", ""),
+                row.get("compact_body", ""),
+                row["body_hash"],
+                _vector_literal(row["embedding"]),
+                row.get("updated_at"),
+            ]
         )
-        for row in rows
-    ]
+        payload.append(tuple(values))
+    document_pk_column = "document_pk, " if has_document_pk else ""
+    document_pk_value = f"(select id from {SUPABASE_DOCS_TABLE} where source = %s), " if has_document_pk else ""
+    document_pk_update = "document_pk = excluded.document_pk,\n                    " if has_document_pk else ""
     with _db_connect() as conn:
         with conn.cursor() as cur:
             cur.executemany(
                 f"""
                 insert into {SUPABASE_CHUNKS_TABLE} (
-                    chunk_id, document_id, source, title, filename, folder, heading,
+                    chunk_id, document_id, {document_pk_column}source, title, filename, folder, heading,
                     body, normalized_body, compact_body, body_hash, embedding, updated_at
                 )
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
+                values (
+                    %s,
+                    %s,
+                    {document_pk_value}
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s
+                )
                 on conflict (chunk_id) do update set
                     document_id = excluded.document_id,
+                    {document_pk_update}
                     source = excluded.source,
                     title = excluded.title,
                     filename = excluded.filename,

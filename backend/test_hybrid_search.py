@@ -10,7 +10,7 @@ from unittest.mock import patch
 os.environ.setdefault("EMBEDDING_BACKEND", "hash")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rag
-from models import Chunk
+from models import Chunk, DocRecord
 
 
 def make_chunk(source: str, title: str, heading: str, body: str) -> Chunk:
@@ -237,6 +237,27 @@ class HybridSearchTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(result["force"])
         self.assertEqual(len(upsert.call_args.args[0]), 1)
+
+    def test_sync_document_chunk_index_rebuilds_only_requested_document(self) -> None:
+        source = "facility/a.md"
+        record = DocRecord(
+            source=source,
+            title="A",
+            customer="facility",
+            content="# A\n\n## 점검\n\n" + ("alpha beta gamma " * 12),
+            updated_at="2026-05-19T00:00:00+00:00",
+        )
+        with patch.object(rag, "SUPABASE_ENABLED", True), \
+             patch.object(rag, "_db_doc_record", return_value=record), \
+             patch.object(rag, "_db_delete_chunks_for_source") as delete_chunks, \
+             patch.object(rag, "_db_existing_chunk_hashes", return_value={}), \
+             patch.object(rag, "_db_upsert_search_chunks", side_effect=lambda rows: len(rows)) as upsert:
+            result = rag.sync_document_chunk_index(source)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["source"], source)
+        self.assertGreaterEqual(result["chunks"], 1)
+        delete_chunks.assert_called_once_with(source)
+        self.assertEqual(upsert.call_args.args[0][0]["source"], source)
 
     def test_quality_case_set_has_at_least_30_queries(self) -> None:
         cases_path = Path(__file__).with_name("search_quality_cases.json")

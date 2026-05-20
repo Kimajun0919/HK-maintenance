@@ -25,7 +25,10 @@ from config import (
 from models import Chunk
 from storage import (
     _db_chunk_count,
+    _db_delete_chunks_for_folder,
+    _db_delete_chunks_for_source,
     _db_delete_stale_chunks,
+    _db_doc_record,
     _db_existing_chunk_hashes,
     _db_search_chunk_records,
     _db_search_doc_records,
@@ -1785,6 +1788,72 @@ def sync_db_chunk_index(force: bool = False) -> dict:
         "skipped_no_embedding": skipped_no_embedding,
         "force": force,
         "mode": "database",
+    }
+
+
+def _sync_chunk_rows(sync_chunks: list[Chunk], force: bool = False, batch_size: int = 200) -> tuple[int, int]:
+    existing = _db_existing_chunk_hashes()
+    store = EmbeddingStore()
+    rows: list[dict] = []
+    upserted = 0
+    skipped_no_embedding = 0
+    for chunk in sync_chunks:
+        if not chunk.chunk_id:
+            continue
+        embedding, body_hash = _embedding_for_chunk_sync(store, chunk, force=force)
+        if not force and existing.get(chunk.chunk_id) == body_hash:
+            continue
+        if not embedding:
+            skipped_no_embedding += 1
+            continue
+        rows.append(_chunk_embedding_payload(chunk, embedding, body_hash))
+        if len(rows) >= batch_size:
+            upserted += _db_upsert_search_chunks(rows)
+            rows = []
+    if rows:
+        upserted += _db_upsert_search_chunks(rows)
+    store.save()
+    return upserted, skipped_no_embedding
+
+
+def sync_document_chunk_index(source: str, force: bool = True) -> dict:
+    """Rebuild Supabase chunks for one document without loading every DB chunk in memory."""
+    if not SUPABASE_ENABLED:
+        return {"ok": False, "reason": "supabase disabled", "source": source, "chunks": 0}
+    record = _db_doc_record(source)
+    _db_delete_chunks_for_source(source)
+    if record is None:
+        return {"ok": True, "source": source, "chunks": 0, "upserted": 0, "deleted": True, "mode": "database_document"}
+    sync_chunks = split_markdown(DOCS_DIR / record.source, clean_text(record.content), updated_at=record.updated_at)
+    upserted, skipped_no_embedding = _sync_chunk_rows(sync_chunks, force=force)
+    return {
+        "ok": True,
+        "source": source,
+        "chunks": len(sync_chunks),
+        "upserted": upserted,
+        "skipped_no_embedding": skipped_no_embedding,
+        "mode": "database_document",
+    }
+
+
+def sync_folder_chunk_index(folder_name: str, force: bool = True) -> dict:
+    """Rebuild Supabase chunks for documents under one folder."""
+    if not SUPABASE_ENABLED:
+        return {"ok": False, "reason": "supabase disabled", "folder": folder_name, "chunks": 0}
+    _db_delete_chunks_for_folder(folder_name)
+    records = [record for record in _doc_records() if record.customer == folder_name or record.source.startswith(f"{folder_name}/")]
+    sync_chunks: list[Chunk] = []
+    for record in records:
+        sync_chunks.extend(split_markdown(DOCS_DIR / record.source, clean_text(record.content), updated_at=record.updated_at))
+    upserted, skipped_no_embedding = _sync_chunk_rows(sync_chunks, force=force)
+    return {
+        "ok": True,
+        "folder": folder_name,
+        "docs": len(records),
+        "chunks": len(sync_chunks),
+        "upserted": upserted,
+        "skipped_no_embedding": skipped_no_embedding,
+        "mode": "database_folder",
     }
 
 

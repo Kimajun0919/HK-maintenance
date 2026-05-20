@@ -29,6 +29,7 @@ from config import (
     MAX_NEW_TOKENS,
     MODEL_NAME,
     SUPABASE_ASSETS_TABLE,
+    SUPABASE_CHUNKS_TABLE,
     SUPABASE_DOCS_TABLE,
     SUPABASE_ENABLED,
     SUPABASE_META_TABLE,
@@ -74,6 +75,23 @@ from storage import (
 )
 
 import rag
+
+
+def _refresh_after_doc_change(*sources: str, force: bool = False) -> dict | None:
+    if SUPABASE_ENABLED and not rag.RAG_STARTUP_INDEX:
+        result = None
+        for source in sources:
+            if source:
+                result = rag.sync_document_chunk_index(source, force=True)
+        return result
+    return rag.refresh_index(force=force)
+
+
+def _refresh_after_folder_change(folder_name: str, force: bool = False) -> dict | None:
+    if SUPABASE_ENABLED and not rag.RAG_STARTUP_INDEX:
+        return rag.sync_folder_chunk_index(folder_name, force=True)
+    return rag.refresh_index(force=force)
+
 
 def claude_answer(query: str, top_k: int, api_key: str, model: str) -> str:
     api_key = api_key.strip()
@@ -998,6 +1016,7 @@ def create_api_app():
             if _db_folder_exists(new_name):
                 return _json_response({"error": "folder already exists"}, status_code=409)
             _db_rename_folder(old_name, new_name)
+            _refresh_after_folder_change(new_name)
         else:
             old_path = (DOCS_DIR / old_name).resolve()
             new_path = (DOCS_DIR / new_name).resolve()
@@ -1011,7 +1030,7 @@ def create_api_app():
             if new_path.exists():
                 return _json_response({"error": "folder already exists"}, status_code=409)
             old_path.rename(new_path)
-        rag.refresh_index()
+            rag.refresh_index()
         return {"folder": new_name}
 
     @api_app.put("/api/folders/order")
@@ -1045,7 +1064,7 @@ def create_api_app():
                 return _json_response({"error": "folder is not empty", "count": count}, status_code=409)
             if count > 0:
                 _db_soft_delete_folder_docs(name)
-                rag.refresh_index()
+                _refresh_after_folder_change(name)
             _db_delete_folder(name)
         else:
             path = (DOCS_DIR / name).resolve()
@@ -1107,7 +1126,7 @@ def create_api_app():
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8", newline="\n")
-        rag.refresh_index()
+        _refresh_after_doc_change(rel)
         return {"source": rel, "title": path.stem, "content": content}
 
     @api_app.put("/api/doc")
@@ -1128,7 +1147,7 @@ def create_api_app():
                 return _json_response({"error": "content is empty"}, status_code=400)
             content = content.rstrip() + "\n"
             _db_update_doc(source, content)
-            rag.refresh_index()
+            _refresh_after_doc_change(source)
             updated = _db_doc_record(source)
             return {"source": source, "title": record.title, "content": updated.content if updated else content}
         path = _safe_doc_path(source)
@@ -1140,7 +1159,7 @@ def create_api_app():
         if not content.strip():
             return _json_response({"error": "content is empty"}, status_code=400)
         path.write_text(content.rstrip() + "\n", encoding="utf-8", newline="\n")
-        rag.refresh_index()
+        _refresh_after_doc_change(source)
         return {"source": source, "title": path.stem, "content": path.read_text(encoding="utf-8", errors="replace")}
 
     @api_app.put("/api/doc/rename")
@@ -1169,7 +1188,7 @@ def create_api_app():
             if not _db_folder_exists(folder):
                 _db_create_folder(folder)
             renamed = _db_rename_doc(source, new_source, Path(new_source).stem, folder)
-            rag.refresh_index()
+            _refresh_after_doc_change(source, renamed.source)
             return {"source": renamed.source, "title": renamed.title, "content": renamed.content}
 
         path = _safe_doc_path(source)
@@ -1184,7 +1203,7 @@ def create_api_app():
             return _json_response({"error": "document already exists"}, status_code=409)
         new_path.parent.mkdir(parents=True, exist_ok=True)
         path.rename(new_path)
-        rag.refresh_index()
+        _refresh_after_doc_change(source, new_source)
         rel = new_path.relative_to(DOCS_DIR).as_posix()
         return {"source": rel, "title": new_path.stem, "content": new_path.read_text(encoding="utf-8", errors="replace")}
 
@@ -1203,7 +1222,7 @@ def create_api_app():
                 return _json_response({"error": "system document cannot be deleted"}, status_code=403)
             _db_cascade_soft_delete_assets(source, record.content)
             _db_soft_delete_doc(source)
-            rag.refresh_index()
+            _refresh_after_doc_change(source)
             return {"ok": True, "source": source}
         path = _safe_doc_path(source)
         if path is None:
@@ -1211,7 +1230,7 @@ def create_api_app():
         if _is_system_doc(path):
             return _json_response({"error": "system document cannot be deleted"}, status_code=403)
         path.unlink()
-        rag.refresh_index()
+        _refresh_after_doc_change(source)
         return {"ok": True, "source": source}
 
     @api_app.get("/api/asset")
@@ -1375,7 +1394,9 @@ def create_api_app():
         if do_import:
             for file_path in _iter_import_files(root, recursive=recursive):
                 imported.append(_import_parsed_file(root, file_path, target_folder=target_folder, overwrite=overwrite))
-            rag.refresh_index()
+            changed_sources = [str(item.get("source", "")) for item in imported if item.get("status") in {"created", "updated"}]
+            if changed_sources:
+                _refresh_after_doc_change(*changed_sources)
         created = sum(1 for item in imported if item.get("status") == "created")
         updated = sum(1 for item in imported if item.get("status") == "updated")
         skipped = sum(1 for item in imported if item.get("status") == "skipped")
@@ -1434,7 +1455,7 @@ def create_api_app():
             return _json_response({"error": "key is required"}, status_code=400)
         if item_type == "doc":
             _db_restore_doc(key)
-            rag.refresh_index()
+            _refresh_after_doc_change(key)
         elif item_type == "asset":
             _db_restore_asset(key)
         else:
@@ -1454,15 +1475,23 @@ def create_api_app():
         if item_type == "all":
             with _db_connect() as conn:
                 with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        delete from {SUPABASE_CHUNKS_TABLE} c
+                        using {SUPABASE_DOCS_TABLE} d
+                        where c.source = d.source and d.deleted_at is not null
+                        """
+                    )  # nosec B608
                     cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where deleted_at is not null")  # nosec B608
                     cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where deleted_at is not null")  # nosec B608
-            rag.refresh_index()
+            if not (SUPABASE_ENABLED and not rag.RAG_STARTUP_INDEX):
+                rag.refresh_index()
             return {"ok": True}
         if not key:
             return _json_response({"error": "key is required"}, status_code=400)
         if item_type == "doc":
             _db_permanent_delete_doc(key)
-            rag.refresh_index()
+            _refresh_after_doc_change(key)
         elif item_type == "asset":
             _db_permanent_delete_asset(key)
         else:
