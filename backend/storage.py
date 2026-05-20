@@ -176,8 +176,14 @@ def _init_supabase_storage() -> None:
                 cur.execute(f"create index if not exists {SUPABASE_DOCS_TABLE}_deleted_at_idx on {SUPABASE_DOCS_TABLE} (deleted_at) where deleted_at is not null")
                 cur.execute(f"alter table {SUPABASE_ASSETS_TABLE} add column if not exists deleted_at timestamptz")
                 cur.execute(f"create index if not exists {SUPABASE_ASSETS_TABLE}_deleted_at_idx on {SUPABASE_ASSETS_TABLE} (deleted_at) where deleted_at is not null")
+                vector_ready = False
                 try:
                     cur.execute("create extension if not exists vector")
+                    vector_ready = True
+                except Exception:
+                    # pgvector may be unavailable in local PostgreSQL. Core document storage should still boot.
+                    pass
+                if vector_ready:
                     cur.execute(
                         f"""
                         create table if not exists {SUPABASE_CHUNKS_TABLE} (
@@ -199,6 +205,7 @@ def _init_supabase_storage() -> None:
                         )
                         """
                     )
+                try:
                     cur.execute(f"alter table {SUPABASE_CHUNKS_TABLE} add column if not exists document_pk bigint")
                     cur.execute(
                         f"""
@@ -252,7 +259,7 @@ def _init_supabase_storage() -> None:
                         f"create index if not exists {SUPABASE_CHUNKS_TABLE}_embedding_hnsw_idx on {SUPABASE_CHUNKS_TABLE} using hnsw (embedding vector_cosine_ops)"
                     )
                 except Exception:
-                    # pgvector may be unavailable in local PostgreSQL. Core document storage should still boot.
+                    # Older deployments can still use existing chunk search; rebuild endpoints report DB errors.
                     pass
                 cur.execute(f"delete from {SUPABASE_DOCS_TABLE} where deleted_at < now() - interval '30 days'")
                 cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where deleted_at < now() - interval '30 days'")
