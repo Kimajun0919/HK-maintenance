@@ -7,6 +7,10 @@ services:
     envVars:
       - key: DOC_STORAGE
         value: supabase
+      - key: SUPABASE_PROFILE
+        value: main
+      - key: SUPABASE_PROFILE_STRICT
+        value: "1"
       - key: SUPABASE_SEED_FROM_FILES
         value: "0"
       - key: SUPABASE_AUTO_MIGRATE
@@ -19,5 +23,32 @@ services:
         value: "0"
       - key: EMBEDDING_BACKEND
         value: none
-      - key: SUPABASE_DB_URL
+      - key: SUPABASE_DB_URL_MAIN
+        sync: false
+
+  - type: web
+    name: hk-maintenance-rag-fresh
+    runtime: docker
+    plan: free
+    region: singapore
+    envVars:
+      - key: DOC_STORAGE
+        value: supabase
+      - key: SUPABASE_PROFILE
+        value: fresh
+      - key: SUPABASE_PROFILE_STRICT
+        value: "1"
+      - key: SUPABASE_SEED_FROM_FILES
+        value: "0"
+      - key: SUPABASE_AUTO_MIGRATE
+        value: "0"
+      - key: APP_PORT
+        value: "8080"
+      - key: APP_HOST
+        value: "0.0.0.0"
+      - key: USE_LLM
+        value: "0"
+      - key: EMBEDDING_BACKEND
+        value: none
+      - key: SUPABASE_DB_URL_FRESH
         sync: false

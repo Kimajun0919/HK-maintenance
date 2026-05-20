@@ -23,13 +23,13 @@ SUPABASE_PROFILE_SUFFIX = _profile_suffix(SUPABASE_PROFILE)
 SUPABASE_PROFILE_STRICT = os.getenv("SUPABASE_PROFILE_STRICT", "1" if SUPABASE_PROFILE_SUFFIX else "0") != "0"
 
 
-def _profiled_env(name: str, default: str = "") -> str:
+def _profiled_env(name: str, default: str = "", strict: bool = False) -> str:
     if SUPABASE_PROFILE_SUFFIX:
         profiled_name = f"{name}_{SUPABASE_PROFILE_SUFFIX}"
         profiled_value = os.getenv(profiled_name)
         if profiled_value is not None and profiled_value != "":
             return profiled_value
-        if SUPABASE_PROFILE_STRICT:
+        if strict:
             return default
     return os.getenv(name, default)
 
@@ -43,7 +43,7 @@ USE_LLM = os.getenv("USE_LLM", "0") != "0"
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "512"))
 DEFAULT_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")
 ANTHROPIC_API_URL = os.getenv("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")
-SUPABASE_DB_URL = _profiled_env("SUPABASE_DB_URL") or _profiled_env("DATABASE_URL")
+SUPABASE_DB_URL = _profiled_env("SUPABASE_DB_URL", strict=SUPABASE_PROFILE_STRICT) or _profiled_env("DATABASE_URL", strict=SUPABASE_PROFILE_STRICT)
 DOC_STORAGE = _profiled_env("DOC_STORAGE", "supabase" if SUPABASE_DB_URL else "files").strip().lower()
 SUPABASE_ENABLED = DOC_STORAGE == "supabase" and bool(SUPABASE_DB_URL)
 SUPABASE_AUTO_MIGRATE = _profiled_env("SUPABASE_AUTO_MIGRATE", "1") != "0"
