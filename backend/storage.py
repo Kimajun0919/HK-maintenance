@@ -19,6 +19,47 @@ from config import (
 )
 from models import AssetRecord, DocRecord, FolderRecord
 
+_DB_SEARCH_STOPWORDS = {
+    "관련",
+    "찾아줘",
+    "찾아",
+    "알려줘",
+    "알려",
+    "문서",
+    "내용",
+    "정보",
+    "뭐야",
+    "무엇",
+    "어떤",
+    "있는",
+    "있어",
+    "해주세요",
+    "해줘",
+    "please",
+}
+
+
+def _db_normalize_search_text(text: str) -> str:
+    text = (text or "").lower()
+    text = re.sub(r"a\s*[/.\-]?\s*s|에이에스", "as", text, flags=re.I)
+    text = re.sub(r"[^0-9a-z\uac00-\ud7a3\s]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _db_search_terms(query: str) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for term in re.findall(r"[0-9a-z\uac00-\ud7a3]{1,}", _db_normalize_search_text(query)):
+        if len(term) < 2 and not term.isdigit():
+            continue
+        if term in _DB_SEARCH_STOPWORDS:
+            continue
+        if term not in seen:
+            seen.add(term)
+            terms.append(term)
+    return terms
+
+
 def _file_doc_records() -> list[DocRecord]:
     if not DOCS_DIR.exists():
         return []
@@ -221,7 +262,7 @@ def _db_doc_index_records() -> list[DocRecord]:
 
 
 def _db_search_doc_records(query: str, limit: int) -> list[DocRecord]:
-    terms = [term.strip() for term in re.split(r"\s+", str(query or "")) if term.strip()]
+    terms = _db_search_terms(query)
     if not terms or limit <= 0:
         return []
     clauses = []
@@ -237,7 +278,7 @@ def _db_search_doc_records(query: str, limit: int) -> list[DocRecord]:
                 f"""
                 select source, title, customer, content, updated_at
                 from {SUPABASE_DOCS_TABLE}
-                where deleted_at is null and {" and ".join(clauses)}
+                where deleted_at is null and ({" or ".join(clauses)})
                 order by updated_at desc nulls last, source
                 limit %s
                 """,
@@ -245,6 +286,98 @@ def _db_search_doc_records(query: str, limit: int) -> list[DocRecord]:
             )
             return [
                 DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3], updated_at=row[4].isoformat() if row[4] else None)
+                for row in cur.fetchall()
+            ]
+
+
+def _db_chunk_count() -> int:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select count(*)
+                from {SUPABASE_CHUNKS_TABLE} c
+                join {SUPABASE_DOCS_TABLE} d on d.source = c.source and d.deleted_at is null
+                """
+            )
+            return int(cur.fetchone()[0])
+
+
+def _db_search_chunk_records(query: str, limit: int) -> list[dict]:
+    terms = _db_search_terms(query)
+    if not terms or limit <= 0:
+        return []
+
+    score_exprs: list[str] = []
+    where_exprs: list[str] = []
+    score_params: list[str] = []
+    where_params: list[str] = []
+    for term in terms:
+        pattern = f"%{term}%"
+        score_exprs.append(
+            """
+            (case when c.title ilike %s then 8 else 0 end) +
+            (case when c.filename ilike %s then 6 else 0 end) +
+            (case when c.folder ilike %s then 6 else 0 end) +
+            (case when c.heading ilike %s then 5 else 0 end) +
+            (case when c.source ilike %s then 4 else 0 end) +
+            (case when c.normalized_body ilike %s then 2 else 0 end) +
+            (case when c.body ilike %s then 1 else 0 end)
+            """
+        )
+        score_params.extend([pattern, pattern, pattern, pattern, pattern, pattern, pattern])
+        where_exprs.append(
+            """
+            (
+                c.title ilike %s or c.filename ilike %s or c.folder ilike %s or
+                c.heading ilike %s or c.source ilike %s or
+                c.normalized_body ilike %s or c.body ilike %s
+            )
+            """
+        )
+        where_params.extend([pattern, pattern, pattern, pattern, pattern, pattern, pattern])
+
+    params: list[str | int] = [*score_params, *where_params, max(1, min(int(limit), 200))]
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select
+                    c.chunk_id,
+                    c.document_id,
+                    c.source,
+                    c.title,
+                    c.filename,
+                    c.folder,
+                    c.heading,
+                    c.body,
+                    c.normalized_body,
+                    c.compact_body,
+                    c.updated_at,
+                    ({" + ".join(score_exprs)}) as match_score
+                from {SUPABASE_CHUNKS_TABLE} c
+                join {SUPABASE_DOCS_TABLE} d on d.source = c.source and d.deleted_at is null
+                where {" or ".join(where_exprs)}
+                order by match_score desc, c.updated_at desc nulls last, c.source, c.chunk_id
+                limit %s
+                """,
+                params,
+            )
+            return [
+                {
+                    "chunk_id": row[0],
+                    "document_id": row[1],
+                    "source": row[2],
+                    "title": row[3],
+                    "filename": row[4],
+                    "folder": row[5],
+                    "heading": row[6],
+                    "body": row[7],
+                    "normalized_body": row[8],
+                    "compact_body": row[9],
+                    "updated_at": row[10].isoformat() if row[10] else None,
+                    "score": float(row[11] or 0.0),
+                }
                 for row in cur.fetchall()
             ]
 

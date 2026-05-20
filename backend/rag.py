@@ -24,8 +24,10 @@ from config import (
 )
 from models import Chunk
 from storage import (
+    _db_chunk_count,
     _db_delete_stale_chunks,
     _db_existing_chunk_hashes,
+    _db_search_chunk_records,
     _db_search_doc_records,
     _db_upsert_search_chunks,
     _db_vector_search_chunks,
@@ -427,6 +429,45 @@ def _db_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str
     results.sort(key=lambda item: item[1], reverse=True)
     results = [(chunk, score) for chunk, score in results[:top_k] if score > 0]
     return results, build_context(results) if results else ""
+
+
+def _db_chunk_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
+    if not SUPABASE_ENABLED:
+        return [], ""
+    try:
+        rows = _db_search_chunk_records(query, max(top_k * 8, 40))
+    except Exception as exc:
+        if _RAG_DEBUG:
+            print(f"[RAG_DEBUG] db chunk search failed: {exc}")
+        rows = []
+
+    results: list[tuple[Chunk, float]] = []
+    for row in rows:
+        body = _focused_text_for_query(query, str(row.get("body") or ""))
+        if not body:
+            continue
+        source = str(row.get("source") or "")
+        title = str(row.get("title") or source.rsplit("/", 1)[-1])
+        chunk = Chunk(
+            text=body,
+            source=source,
+            title=title,
+            document_id=str(row.get("document_id") or _stable_document_id(source)),
+            chunk_id=str(row.get("chunk_id") or ""),
+            heading=str(row.get("heading") or title),
+            filename=str(row.get("filename") or source.rsplit("/", 1)[-1]),
+            folder=str(row.get("folder") or (source.rsplit("/", 1)[0] if "/" in source else "")),
+            updated_at=row.get("updated_at"),
+            normalized_body=str(row.get("normalized_body") or normalize_search_text(body)),
+            compact_body=str(row.get("compact_body") or compact_search_text(body)),
+        )
+        results.append((chunk, float(row.get("score") or 0.0)))
+
+    results.sort(key=lambda item: item[1], reverse=True)
+    results = [(chunk, score) for chunk, score in results[:top_k] if score > 0]
+    if results:
+        return results, build_context(results)
+    return _db_retrieve(query, top_k)
 
 
 # ──────────────────────────────────────────────
@@ -1654,7 +1695,14 @@ def refresh_index(force: bool = False) -> dict | None:
     if not RAG_STARTUP_INDEX:
         chunks = []
         retriever = Retriever([])
-        return {"ok": True, "chunks": 0, "reason": "startup index disabled; database search fallback active", "force": force}
+        try:
+            result = sync_db_chunk_index(force=force)
+            result["reason"] = "startup index disabled; database chunk index rebuilt"
+            return result
+        except Exception as exc:
+            if _RAG_DEBUG:
+                print(f"[RAG_DEBUG] database chunk index sync failed: {exc}")
+            return {"ok": False, "error": str(exc), "chunks": 0, "force": force}
     chunks = load_chunks()
     retriever = Retriever(chunks)
     _apply_settings_to_runtime()  # re-apply BM25 params to the new retriever
@@ -1684,6 +1732,62 @@ def _chunk_embedding_payload(chunk: Chunk, embedding: list[float], body_hash: st
     }
 
 
+def _embedding_for_chunk_sync(store: EmbeddingStore, chunk: Chunk, force: bool = False) -> tuple[list[float], str]:
+    content = store.chunk_embedding_text(chunk)
+    body_hash = store.text_hash(content)
+    backend = os.getenv("EMBEDDING_BACKEND", "sentence-transformers").lower()
+    if backend == "none":
+        return store._hash_embedding(content), body_hash
+    embedding = store.get_chunk_embedding(chunk, force=force)
+    if not embedding:
+        embedding = store._hash_embedding(content)
+    return embedding, body_hash
+
+
+def sync_db_chunk_index(force: bool = False) -> dict:
+    """Persist all document chunks to Supabase without keeping an in-memory search index."""
+    if not SUPABASE_ENABLED:
+        return {"ok": False, "reason": "supabase disabled", "chunks": 0}
+    sync_chunks = load_chunks()
+    existing = _db_existing_chunk_hashes()
+    valid_ids = [chunk.chunk_id for chunk in sync_chunks if chunk.chunk_id]
+    stale_deleted = _db_delete_stale_chunks(valid_ids)
+    store = EmbeddingStore()
+    rows: list[dict] = []
+    upserted = 0
+    skipped_no_embedding = 0
+    for chunk in sync_chunks:
+        if not chunk.chunk_id:
+            continue
+        embedding, body_hash = _embedding_for_chunk_sync(store, chunk, force=force)
+        if not force and existing.get(chunk.chunk_id) == body_hash:
+            continue
+        if not embedding:
+            skipped_no_embedding += 1
+            continue
+        rows.append(_chunk_embedding_payload(chunk, embedding, body_hash))
+        if len(rows) >= 200:
+            upserted += _db_upsert_search_chunks(rows)
+            rows = []
+    if rows:
+        upserted += _db_upsert_search_chunks(rows)
+    store.save()
+    try:
+        stored_chunks = _db_chunk_count()
+    except Exception:
+        stored_chunks = 0
+    return {
+        "ok": True,
+        "chunks": len(sync_chunks),
+        "storedChunks": stored_chunks,
+        "upserted": upserted,
+        "stale_deleted": stale_deleted,
+        "skipped_no_embedding": skipped_no_embedding,
+        "force": force,
+        "mode": "database",
+    }
+
+
 def sync_vector_index(force: bool = False) -> dict:
     """Persist current chunks and embeddings into the Supabase pgvector table."""
     if not SUPABASE_ENABLED:
@@ -1696,20 +1800,11 @@ def sync_vector_index(force: bool = False) -> dict:
     for idx, chunk in enumerate(chunks):
         if not chunk.chunk_id:
             continue
-        content = retriever.embedding_store.chunk_embedding_text(chunk)
-        body_hash = retriever.embedding_store.text_hash(content)
+        embedding, body_hash = _embedding_for_chunk_sync(retriever.embedding_store, chunk, force=force)
         if not force and existing.get(chunk.chunk_id) == body_hash:
             continue
-        if force:
-            embedding = retriever.embedding_store.get_chunk_embedding(chunk, force=True)
-            if idx < len(retriever.embeddings):
-                retriever.embeddings[idx] = embedding
-        else:
-            embedding = retriever.embeddings[idx] if idx < len(retriever.embeddings) else []
-            if not embedding:
-                embedding = retriever.embedding_store.get_chunk_embedding(chunk)
-                if idx < len(retriever.embeddings):
-                    retriever.embeddings[idx] = embedding
+        if idx < len(retriever.embeddings):
+            retriever.embeddings[idx] = embedding
         if not embedding:
             skipped_no_embedding += 1
             continue
@@ -1742,7 +1837,7 @@ def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
     if not query:
         return [], ""
     if not chunks and not RAG_STARTUP_INDEX:
-        return _db_retrieve(query, top_k)
+        return _db_chunk_retrieve(query, top_k)
 
     intent = detect_intent(query)
     candidate_k = INTENT_CONFIG[intent]["candidate_k"]
@@ -1761,7 +1856,7 @@ def search_documents(query: str, top_k: int = 5, debug: bool = False, mode: str 
     if not query:
         return {"results": [], "debug": {}} if debug else []
     if not chunks and not RAG_STARTUP_INDEX:
-        chunk_results, _context = _db_retrieve(query, top_k)
+        chunk_results, _context = _db_chunk_retrieve(query, top_k)
         results = [
             {
                 "document_id": chunk.document_id,
@@ -1773,7 +1868,7 @@ def search_documents(query: str, top_k: int = 5, debug: bool = False, mode: str 
                 "matched_text": re.sub(r"\s+", " ", chunk.text).strip()[:700],
                 "snippet": re.sub(r"\s+", " ", chunk.text).strip()[:700],
                 "score": round(score, 4),
-                "score_detail": {"backend": "database"},
+                "score_detail": {"backend": "database_chunks" if chunk.chunk_id and "_chunk_" in chunk.chunk_id else "database_docs"},
                 "related_chunks": [],
             }
             for chunk, score in chunk_results
@@ -1845,7 +1940,7 @@ def retrieve_for_llm(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]],
     if not query:
         return [], ""
     if not chunks and not RAG_STARTUP_INDEX:
-        return _db_retrieve(query, top_k)
+        return _db_chunk_retrieve(query, top_k)
 
     intent = detect_intent(query)
     cfg = INTENT_CONFIG[intent]

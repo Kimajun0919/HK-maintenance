@@ -45,6 +45,7 @@ from storage import (
     _db_asset_record,
     _db_asset_total_bytes,
     _db_cascade_soft_delete_assets,
+    _db_chunk_count,
     _db_connect,
     _db_create_doc,
     _db_create_folder,
@@ -916,6 +917,12 @@ def create_api_app():
         # Keep metadata lightweight: this endpoint is called during initial UI load.
         # Avoid extra Supabase aggregate connections here; slow pooler responses should
         # not block search/chat from becoming usable.
+        chunk_count = len(rag.chunks)
+        if not chunk_count and SUPABASE_ENABLED:
+            try:
+                chunk_count = _db_chunk_count()
+            except Exception:
+                chunk_count = 0
         if rag.chunks:
             document_ids = {chunk.document_id or chunk.source for chunk in rag.chunks}
             doc_count = len(document_ids)
@@ -930,7 +937,7 @@ def create_api_app():
             "docsDir": str(DOCS_DIR),
             "storage": "supabase" if SUPABASE_ENABLED else "files",
             "supabaseProfile": SUPABASE_PROFILE,
-            "chunkCount": len(rag.chunks),
+            "chunkCount": chunk_count,
             "docCount": doc_count,
             "assetCount": asset_count,
             "assetTotalBytes": asset_total_bytes,
