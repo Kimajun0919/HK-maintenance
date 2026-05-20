@@ -1857,25 +1857,37 @@ def search_documents(query: str, top_k: int = 5, debug: bool = False, mode: str 
         return {"results": [], "debug": {}} if debug else []
     if not chunks and not RAG_STARTUP_INDEX:
         chunk_results, _context = _db_chunk_retrieve(query, top_k)
-        results = [
-            {
-                "document_id": chunk.document_id,
-                "title": chunk.title,
-                "filename": chunk.filename or chunk.source.rsplit("/", 1)[-1],
-                "folder": chunk.folder or "",
-                "source": chunk.source,
-                "matched_heading": chunk.heading or chunk.title,
+        grouped: dict[str, dict] = {}
+        for chunk, score in chunk_results:
+            document_id = chunk.document_id or _stable_document_id(chunk.source)
+            backend = "database_chunks" if chunk.chunk_id and "_chunk_" in chunk.chunk_id else "database_docs"
+            item = {
+                "chunk_id": chunk.chunk_id,
+                "heading": chunk.heading or chunk.title,
                 "matched_text": re.sub(r"\s+", " ", chunk.text).strip()[:700],
-                "snippet": re.sub(r"\s+", " ", chunk.text).strip()[:700],
                 "score": round(score, 4),
-                "score_detail": {"backend": "database_chunks" if chunk.chunk_id and "_chunk_" in chunk.chunk_id else "database_docs"},
-                "related_chunks": [],
+                "score_detail": {"backend": backend},
             }
-            for chunk, score in chunk_results
-        ]
+            if document_id not in grouped:
+                grouped[document_id] = {
+                    "document_id": document_id,
+                    "title": chunk.title,
+                    "filename": chunk.filename or chunk.source.rsplit("/", 1)[-1],
+                    "folder": chunk.folder or "",
+                    "source": chunk.source,
+                    "matched_heading": chunk.heading or chunk.title,
+                    "matched_text": item["matched_text"],
+                    "snippet": item["matched_text"],
+                    "score": round(score, 4),
+                    "score_detail": {"backend": backend},
+                    "related_chunks": [],
+                }
+            else:
+                grouped[document_id]["related_chunks"].append(item)
+        results = sorted(grouped.values(), key=lambda item: item["score"], reverse=True)[:top_k]
         if not debug:
             return results
-        return {"results": results, "debug": {"backend": "database", "returned_document_count": len(results)}}
+        return {"results": results, "debug": {"backend": "database_chunks", "returned_document_count": len(results)}}
     candidate_top_k = max(top_k * 4, top_k)
     intent = detect_intent(query)
     candidate_k = INTENT_CONFIG[intent]["candidate_k"]

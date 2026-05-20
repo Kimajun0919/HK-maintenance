@@ -184,7 +184,21 @@ RAG_ENABLE_LEGACY_INDEX=0
 EMBEDDING_BACKEND=none
 ```
 
-이 모드에서는 앱 시작 시 전체 인덱스를 만들지 않고, 검색 요청 때 Supabase DB에 직접 질의합니다. 폴더 목록, 문서 CRUD, 검색 UI는 그대로 동작합니다.
+이 모드에서는 앱 시작 시 전체 인덱스를 메모리에 만들지 않고, Supabase의 `maintenance_docs_chunks` 청크 테이블을 검색합니다. 폴더 목록, 문서 CRUD, 검색 UI는 그대로 동작합니다.
+
+청크 테이블을 다시 만들 때:
+
+```powershell
+python scripts\rebuild_vector_index.py --force
+```
+
+서버가 떠 있는 상태에서는 아래 API로도 재생성할 수 있습니다.
+
+```text
+POST /api/search-index/rebuild
+```
+
+이 작업은 전체 문서를 청크로 나눠 Supabase에 저장하지만, 서버 시작 시 전체 청크를 계속 메모리에 올리지는 않습니다.
 
 사양별 권장값:
 

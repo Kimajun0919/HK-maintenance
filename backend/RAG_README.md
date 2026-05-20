@@ -2,7 +2,7 @@
 
 이 문서는 현재 HK-maintenance 프로젝트의 검색/RAG 구조를 설명합니다. 이 프로젝트의 검색은 크게 두 가지 모드로 동작합니다.
 
-- `RAG_STARTUP_INDEX=0`: Render free tier처럼 메모리가 작은 서버용입니다. 시작 시 전체 청크 인덱스를 만들지 않고, Supabase DB에서 문서 레코드를 직접 검색합니다.
+- `RAG_STARTUP_INDEX=0`: Render free tier처럼 메모리가 작은 서버용입니다. 시작 시 전체 청크 인덱스를 메모리에 만들지 않고, Supabase의 청크 테이블을 직접 검색합니다.
 - `RAG_STARTUP_INDEX=1`: 메모리가 충분한 서버용입니다. 시작 시 문서를 청크로 읽고 BM25, 문자 n-gram, 선택적 임베딩을 사용해 하이브리드 검색을 수행합니다.
 
 `GET /api/search`는 검색 결과를 반환하는 API입니다. 자연어 답변 생성은 `POST /api/chat`에서 선택적으로 수행합니다.
@@ -65,12 +65,13 @@ EMBEDDING_BACKEND=none
 이 모드의 동작은 다음과 같습니다.
 
 - 앱 시작 시 `load_chunks()`를 실행하지 않습니다.
-- `/api/meta`의 `chunkCount`가 `0`으로 보일 수 있습니다. 이는 정상입니다.
-- `/api/search`는 `maintenance_docs`를 DB에서 직접 조회해 결과를 만듭니다.
+- `/api/meta`의 `chunkCount`는 메모리 청크가 아니라 Supabase `maintenance_docs_chunks` 행 수를 보여줍니다.
+- `/api/search`는 먼저 `maintenance_docs_chunks`를 조회해 결과를 만듭니다.
+- 청크 테이블이 비어 있거나 검색 결과가 없으면 `maintenance_docs` 문서 레코드 검색으로 fallback합니다.
 - `/api/chat`도 검색 컨텍스트를 DB 기반 검색 결과에서 가져옵니다.
-- `/api/search-index/rebuild`는 청크 인덱스를 메모리에 재생성하지 않고 no-op에 가깝게 처리됩니다.
+- `/api/search-index/rebuild`는 전체 문서를 청크로 나눠 Supabase 청크 테이블에 저장합니다.
 
-즉, `chunkCount=0`이어도 문서 검색이 DB 기반으로 동작하면 정상 상태입니다.
+즉, 저메모리 모드에서도 전체 청크는 DB에 저장할 수 있고, 서버 시작 시 메모리에만 올리지 않는 구조입니다.
 
 ## 일반 서버 모드
 
@@ -219,7 +220,7 @@ python scripts/rebuild_vector_index.py
 POST /api/search-index/rebuild
 ```
 
-저메모리 모드에서는 이 API가 전체 인메모리 인덱스를 재생성하지 않습니다. Render free tier에서 OOM을 피하기 위한 동작입니다.
+저메모리 모드에서는 이 API가 전체 인메모리 인덱스를 재생성하지 않고, Supabase 청크 테이블만 재생성합니다. Render free tier에서 OOM을 피하면서 전체 청크 검색을 유지하기 위한 동작입니다.
 
 ## 주요 API
 
@@ -313,7 +314,7 @@ debug 응답에는 정규화 검색어, 확장어, 후보 수, 임베딩 사용 
 ## 운영 체크리스트
 
 - Render free tier에서는 `RAG_STARTUP_INDEX=0`, `EMBEDDING_BACKEND=none`을 유지합니다.
-- `chunkCount=0`은 저메모리 모드에서 정상일 수 있습니다. `docCount`와 검색 결과를 함께 확인합니다.
+- 저메모리 모드에서 `chunkCount=0`이면 `python scripts/rebuild_vector_index.py --force`로 Supabase 청크 테이블을 먼저 채웁니다.
 - DB별 앱을 따로 띄울 때는 Render 서비스를 두 개 만들고 `SUPABASE_PROFILE`과 프로필별 URL만 다르게 넣습니다.
 - `SUPABASE_PROFILE_STRICT=1`을 유지해 다른 DB로 fallback되는 것을 막습니다.
 - Supabase 접속 문자열, service role key, DB 비밀번호는 README나 git에 넣지 않습니다.
