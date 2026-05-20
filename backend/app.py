@@ -77,6 +77,14 @@ from storage import (
 import rag
 
 
+def _rag_v2():
+    try:
+        from v2 import rag_v2
+        return rag_v2
+    except Exception:
+        return None
+
+
 def _refresh_after_doc_change(*sources: str, force: bool = False) -> dict | None:
     if SUPABASE_ENABLED and not rag.RAG_STARTUP_INDEX:
         result = None
@@ -1499,7 +1507,15 @@ def create_api_app():
         return {"ok": True, "type": item_type, "key": key}
 
     @api_app.get("/api/search")
-    def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10), debug: bool = Query(False)):
+    def api_search(q: str = Query(..., min_length=1), top_k: int = Query(5, ge=1, le=10), debug: bool = Query(False), version: str = Query("v1")):
+        if version.strip().lower() == "v2":
+            rag_v2 = _rag_v2()
+            if rag_v2 is None:
+                return _json_response({"error": "v2 rag is unavailable"}, status_code=500)
+            payload = rag_v2.search_documents(q, top_k)
+            if debug:
+                return {"query": q, "answer": "", **payload}
+            return {"query": q, "answer": "", "results": payload["results"]}
         if debug:
             payload = rag.search_documents(q, top_k, debug=True)
             results = payload["results"]
@@ -1567,6 +1583,29 @@ def create_api_app():
         if not query:
             return _json_response({"error": "query is required"}, status_code=400)
         provider = str(payload.get("provider", "local")).strip().lower()
+        version = str(payload.get("version", "v1")).strip().lower()
+        if version == "v2":
+            rag_v2 = _rag_v2()
+            if rag_v2 is None:
+                return _json_response({"error": "v2 rag is unavailable"}, status_code=500)
+            results, context, _debug = rag_v2.retrieve(query, top_k)
+            if not context:
+                response = "관련 문서를 찾지 못했습니다."
+            else:
+                response = rag.clean_source_based_answer(query, results)
+            return {
+                "query": query,
+                "answer": response,
+                "results": [
+                    {
+                        "source": chunk.source,
+                        "title": chunk.title,
+                        "score": round(score, 4),
+                        "snippet": re.sub(r"\s+", " ", chunk.text).strip()[:700],
+                    }
+                    for chunk, score in results
+                ],
+            }
         if provider == "claude":
             response, results = claude_answer_with_sources(
                 query,
