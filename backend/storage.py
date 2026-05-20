@@ -28,6 +28,8 @@ _DB_SEARCH_STOPWORDS = {
     "문서",
     "내용",
     "정보",
+    "대한",
+    "대해",
     "뭐야",
     "무엇",
     "어떤",
@@ -37,6 +39,37 @@ _DB_SEARCH_STOPWORDS = {
     "해줘",
     "please",
 }
+
+_DB_SEARCH_PARTICLE_SUFFIXES = (
+    "에서",
+    "으로",
+    "에게",
+    "한테",
+    "부터",
+    "까지",
+    "처럼",
+    "보다",
+    "은",
+    "는",
+    "이",
+    "가",
+    "을",
+    "를",
+    "에",
+    "의",
+    "도",
+    "만",
+    "로",
+    "와",
+    "과",
+)
+
+
+def _db_strip_search_particle(term: str) -> str:
+    for suffix in _DB_SEARCH_PARTICLE_SUFFIXES:
+        if term.endswith(suffix) and len(term) > len(suffix) + 1:
+            return term[: -len(suffix)]
+    return term
 
 
 def _db_normalize_search_text(text: str) -> str:
@@ -49,7 +82,8 @@ def _db_normalize_search_text(text: str) -> str:
 def _db_search_terms(query: str) -> list[str]:
     terms: list[str] = []
     seen: set[str] = set()
-    for term in re.findall(r"[0-9a-z\uac00-\ud7a3]{1,}", _db_normalize_search_text(query)):
+    for raw_term in re.findall(r"[0-9a-z\uac00-\ud7a3]{1,}", _db_normalize_search_text(query)):
+        term = _db_strip_search_particle(raw_term)
         if len(term) < 2 and not term.isdigit():
             continue
         if term in _DB_SEARCH_STOPWORDS:

@@ -442,6 +442,8 @@ def _db_chunk_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]
     weights = search_cfg.get("weights", _DEFAULT_SETTINGS["search"]["weights"])
     field_cfg = search_cfg.get("field_boosts", _DEFAULT_SETTINGS["search"]["field_boosts"])
     candidate_limits = search_cfg.get("candidate_limits", _DEFAULT_SETTINGS["search"].get("candidate_limits", {}))
+    embedding_backend = os.getenv("EMBEDDING_BACKEND", "sentence-transformers").lower()
+    semantic_vector_backend = embedding_backend not in {"hash", "fallback", "none"}
     lexical_limit = max(top_k * 8, int(candidate_limits.get("bm25", 50) or 50))
     vector_limit = max(top_k * 8, int(candidate_limits.get("vector", 50) or 50))
     query_info = expand_query_terms(query)
@@ -457,7 +459,7 @@ def _db_chunk_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]
     query_embedding = store.embed_text(query_text)
     vector_scores_by_id: dict[str, float] = {}
     vector_error: str | None = None
-    if query_embedding and vector_limit > 0:
+    if query_embedding and vector_limit > 0 and (rows or semantic_vector_backend):
         try:
             vector_rows = _db_vector_search_chunks(query_embedding, vector_limit)
             vector_scores_by_id = {
@@ -508,6 +510,8 @@ def _db_chunk_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]
         lexical_norm = lexical_score / max_lexical
         ngram_score = jaccard_similarity(query_ngrams, char_ngram_tokens(searchable))
         embedding_score = vector_scores_by_id.get(chunk.chunk_id or "", 0.0)
+        if not semantic_vector_backend and lexical_score <= 0:
+            embedding_score = 0.0
         field_raw = 0.0
         for field_name, boost in field_cfg.items():
             field_text = fields.get(field_name, "")
@@ -533,6 +537,8 @@ def _db_chunk_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]
             + exact_match_boost * float(weights.get("exact_match_boost", 0.05))
             + recency_boost
         )
+        if not semantic_vector_backend and lexical_score <= 0 and field_boost <= 0 and exact_match_boost <= 0:
+            continue
         scored.append((chunk, final_score))
 
     scored.sort(key=lambda item: item[1], reverse=True)
