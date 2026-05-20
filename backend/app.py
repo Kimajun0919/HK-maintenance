@@ -32,6 +32,7 @@ from config import (
     SUPABASE_DOCS_TABLE,
     SUPABASE_ENABLED,
     SUPABASE_META_TABLE,
+    SUPABASE_PROFILE,
     USE_LLM,
 )
 from converters import _convert_docx_to_md, _convert_pdf_to_md, _convert_xlsx_to_md
@@ -921,6 +922,7 @@ def create_api_app():
         return {
             "docsDir": str(DOCS_DIR),
             "storage": "supabase" if SUPABASE_ENABLED else "files",
+            "supabaseProfile": SUPABASE_PROFILE,
             "chunkCount": len(rag.chunks),
             "docCount": doc_count,
             "assetCount": asset_count,
