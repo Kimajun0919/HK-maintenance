@@ -15,13 +15,13 @@
       "exact_match_boost": 0.05,
       "recency_boost_max": 0.05
     },
+    "candidate_limit": 50,
     "candidate_limits": {
       "bm25": 50,
       "ngram": 50,
       "vector": 50,
       "merged_max": 100
     },
-    "candidate_limit": 50,
     "field_boost_cap": 0.35,
     "exact_phrase_boost": 0.05,
     "compact_exact_phrase_boost": 0.03,
@@ -93,6 +93,6 @@
     "system_instruction": "제공된 문서 근거만 사용하여 답변합니다. 근거에 충분한 정보가 없으면 '제공된 문서에 해당 정보가 없습니다'라고 답합니다. 추측하지 않습니다. URL, 계정, 일정, 비용, 이름, 기술 정보를 임의로 만들지 않습니다. 간결하게 답변하며, 관련 섹션 또는 파일명을 언급하면 더 좋습니다."
   },
   "general": {
-    "max_new_tokens": 512
+    "max_new_tokens": 1200
   }
 }
