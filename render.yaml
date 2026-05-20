@@ -1,4 +1,9 @@
 services:
+  # Render free-tier services use the low-memory database-backed search profile.
+  # On a larger Render plan, override these service env vars to enable startup indexing:
+  # RAG_STARTUP_INDEX=1
+  # RAG_ENABLE_NGRAM_INDEX=1
+  # RAG_ENABLE_LEGACY_INDEX=1
   - type: web
     name: hk-maintenance-rag
     runtime: docker
