@@ -397,6 +397,28 @@ def ensure_maintenance_request_schema() -> None:
             cur.execute(f"create index if not exists {SUPABASE_REQUESTS_TABLE}_request_date_idx on {SUPABASE_REQUESTS_TABLE} (request_date desc)")
             cur.execute(f"create index if not exists {SUPABASE_REQUESTS_TABLE}_updated_at_idx on {SUPABASE_REQUESTS_TABLE} (updated_at desc)")
             cur.execute(f"create index if not exists {SUPABASE_REQUESTS_TABLE}_row_hash_idx on {SUPABASE_REQUESTS_TABLE} (row_hash)")
+            cur.execute(f"create index if not exists {SUPABASE_REQUESTS_TABLE}_last_import_id_idx on {SUPABASE_REQUESTS_TABLE} (last_import_id)")
+            try:
+                cur.execute(
+                    f"""
+                    do $$
+                    begin
+                        if not exists (
+                            select 1 from pg_constraint
+                            where conname = '{SUPABASE_REQUESTS_TABLE}_last_import_id_fkey'
+                        ) then
+                            alter table {SUPABASE_REQUESTS_TABLE}
+                            add constraint {SUPABASE_REQUESTS_TABLE}_last_import_id_fkey
+                            foreign key (last_import_id)
+                            references {SUPABASE_REQUEST_IMPORTS_TABLE}(id)
+                            on update cascade
+                            on delete set null;
+                        end if;
+                    end $$;
+                    """
+                )
+            except Exception:
+                pass
             try:
                 cur.execute(
                     f"create index if not exists {SUPABASE_REQUESTS_TABLE}_search_text_trgm_idx "

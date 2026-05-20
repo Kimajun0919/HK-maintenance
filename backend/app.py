@@ -1336,7 +1336,7 @@ def create_api_app():
         if not mime_type.startswith("image/"):
             return _json_response({"error": "only image uploads are supported"}, status_code=400)
         if SUPABASE_ENABLED:
-            _db_upsert_asset(AssetRecord(path=asset_rel, mime_type=mime_type, content=content))
+            _db_upsert_asset(AssetRecord(path=asset_rel, mime_type=mime_type, content=content), document_source=source)
         else:
             path = (DOCS_DIR / asset_rel).resolve()
             try:

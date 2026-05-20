@@ -142,6 +142,8 @@ def _init_supabase_storage() -> None:
                     create table if not exists {SUPABASE_ASSETS_TABLE} (
                         id bigserial primary key,
                         path text not null unique,
+                        document_source text,
+                        document_pk bigint,
                         mime_type text not null default 'application/octet-stream',
                         content bytea not null,
                         size_bytes integer not null default 0,
@@ -150,6 +152,49 @@ def _init_supabase_storage() -> None:
                     )
                     """
                 )
+                cur.execute(f"alter table {SUPABASE_ASSETS_TABLE} add column if not exists document_source text")
+                cur.execute(f"alter table {SUPABASE_ASSETS_TABLE} add column if not exists document_pk bigint")
+                cur.execute(
+                    f"""
+                    update {SUPABASE_ASSETS_TABLE} a
+                    set document_pk = d.id
+                    from {SUPABASE_DOCS_TABLE} d
+                    where a.document_source = d.source and a.document_pk is distinct from d.id
+                    """
+                )
+                cur.execute(f"create index if not exists {SUPABASE_ASSETS_TABLE}_document_source_idx on {SUPABASE_ASSETS_TABLE} (document_source)")
+                cur.execute(f"create index if not exists {SUPABASE_ASSETS_TABLE}_document_pk_idx on {SUPABASE_ASSETS_TABLE} (document_pk)")
+                try:
+                    cur.execute(
+                        f"""
+                        do $$
+                        begin
+                            if not exists (
+                                select 1 from pg_constraint
+                                where conname = '{SUPABASE_ASSETS_TABLE}_document_source_fkey'
+                            ) then
+                                alter table {SUPABASE_ASSETS_TABLE}
+                                add constraint {SUPABASE_ASSETS_TABLE}_document_source_fkey
+                                foreign key (document_source)
+                                references {SUPABASE_DOCS_TABLE}(source)
+                                on update cascade
+                                on delete set null;
+                            end if;
+                            if not exists (
+                                select 1 from pg_constraint
+                                where conname = '{SUPABASE_ASSETS_TABLE}_document_pk_fkey'
+                            ) then
+                                alter table {SUPABASE_ASSETS_TABLE}
+                                add constraint {SUPABASE_ASSETS_TABLE}_document_pk_fkey
+                                foreign key (document_pk)
+                                references {SUPABASE_DOCS_TABLE}(id)
+                                on delete set null;
+                            end if;
+                        end $$;
+                        """
+                    )
+                except Exception:
+                    pass
                 cur.execute(f"create index if not exists {SUPABASE_ASSETS_TABLE}_updated_at_idx on {SUPABASE_ASSETS_TABLE} (updated_at desc)")
                 cur.execute(
                     f"""
@@ -497,20 +542,22 @@ def _db_permanent_delete_asset(path: str) -> None:
             cur.execute(f"delete from {SUPABASE_ASSETS_TABLE} where path = %s", (path,))
 
 
-def _db_upsert_asset(record: AssetRecord) -> None:
+def _db_upsert_asset(record: AssetRecord, document_source: str | None = None) -> None:
     with _db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                insert into {SUPABASE_ASSETS_TABLE} (path, mime_type, content, size_bytes)
-                values (%s, %s, %s, %s)
+                insert into {SUPABASE_ASSETS_TABLE} (path, document_source, document_pk, mime_type, content, size_bytes)
+                values (%s, %s, (select id from {SUPABASE_DOCS_TABLE} where source = %s), %s, %s, %s)
                 on conflict (path) do update set
+                    document_source = coalesce(excluded.document_source, {SUPABASE_ASSETS_TABLE}.document_source),
+                    document_pk = coalesce(excluded.document_pk, {SUPABASE_ASSETS_TABLE}.document_pk),
                     mime_type = excluded.mime_type,
                     content = excluded.content,
                     size_bytes = excluded.size_bytes,
                     updated_at = now()
                 """,
-                (record.path, record.mime_type, record.content, len(record.content)),
+                (record.path, document_source, document_source, record.mime_type, record.content, len(record.content)),
             )
 
 
