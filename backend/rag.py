@@ -31,6 +31,7 @@ from storage import (
     _db_delete_stale_chunks,
     _db_doc_record,
     _db_existing_chunk_hashes,
+    _db_search_terms,
     _db_search_chunk_records,
     _db_search_doc_records,
     _db_upsert_search_chunks,
@@ -498,7 +499,7 @@ def _db_chunk_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]
     max_lexical = max((score for _chunk, score in chunks_by_id.values()), default=1.0)
     if max_lexical <= 0:
         max_lexical = 1.0
-    original_terms = set(word_tokens(query))
+    original_terms = set(_db_search_terms(query))
     expanded_terms = {item["term"] for item in query_info["expanded_terms"]}
     query_ngrams = char_ngram_tokens(query_text)
     normalized_query = query_info["normalized_query"]

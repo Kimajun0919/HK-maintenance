@@ -10,6 +10,7 @@ from unittest.mock import patch
 os.environ.setdefault("EMBEDDING_BACKEND", "hash")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rag
+import storage
 from models import Chunk, DocRecord
 
 
@@ -189,6 +190,69 @@ class HybridSearchTests(unittest.TestCase):
         self.assertTrue(detail["sources"]["vector"])
         self.assertFalse(detail["sources"]["bm25"])
         self.assertEqual(detail["embedding"], 0.99)
+
+    def test_db_search_terms_keep_project_names_and_drop_noise(self) -> None:
+        cases = {
+            "오므론에 대한 정보 알려줘": ["오므론"],
+            "대한항공 프로젝트 정리해줘": ["대한항공"],
+            "KB손보CNS에서 로그인 정보 찾아줘": ["kb손보cns", "로그인"],
+            "한국오므론제어기기 홈페이지 설명해주세요": ["한국오므론제어기기"],
+            "icola.org SSL 보안인증서 관련 문의": ["icola", "org", "ssl", "보안인증서", "문의"],
+        }
+        for query, expected in cases.items():
+            with self.subTest(query=query):
+                self.assertEqual(storage._db_search_terms(query), expected)
+
+    def test_db_hash_vector_candidates_do_not_rank_without_lexical_match(self) -> None:
+        lexical = make_chunk("docs/omron.md", "오므론", "오므론", "오므론 제품 정보")
+        unrelated = make_chunk("docs/koreanair.md", "대한항공", "대한항공", "항공사 유지보수 정보")
+        rows = [
+            {
+                "chunk_id": lexical.chunk_id,
+                "document_id": lexical.document_id,
+                "source": lexical.source,
+                "title": lexical.title,
+                "filename": lexical.filename,
+                "folder": lexical.folder,
+                "heading": lexical.heading,
+                "body": lexical.text,
+                "normalized_body": lexical.normalized_body,
+                "compact_body": lexical.compact_body,
+                "updated_at": lexical.updated_at,
+                "score": 5.0,
+            }
+        ]
+        vector_rows = [
+            {
+                "chunk_id": unrelated.chunk_id,
+                "document_id": unrelated.document_id,
+                "source": unrelated.source,
+                "title": unrelated.title,
+                "filename": unrelated.filename,
+                "folder": unrelated.folder,
+                "heading": unrelated.heading,
+                "body": unrelated.text,
+                "normalized_body": unrelated.normalized_body,
+                "compact_body": unrelated.compact_body,
+                "updated_at": unrelated.updated_at,
+                "score": 0.0,
+            }
+        ]
+        old_backend = os.environ.get("EMBEDDING_BACKEND")
+        os.environ["EMBEDDING_BACKEND"] = "hash"
+        try:
+            with patch.object(rag, "SUPABASE_ENABLED", True), \
+                 patch.object(rag, "_db_search_chunk_records", return_value=rows), \
+                 patch.object(rag, "_db_vector_search_chunks", return_value=[{"chunk_id": unrelated.chunk_id, "similarity": 0.99}]), \
+                 patch.object(rag, "_db_chunk_records_by_ids", return_value=vector_rows):
+                results, context = rag._db_chunk_retrieve("오므론에 대한 정보 알려줘", 5)
+        finally:
+            if old_backend is None:
+                os.environ.pop("EMBEDDING_BACKEND", None)
+            else:
+                os.environ["EMBEDDING_BACKEND"] = old_backend
+        self.assertTrue(context)
+        self.assertEqual([chunk.source for chunk, _score in results], [lexical.source])
 
     def test_sync_vector_index_upserts_only_changed_chunks_and_deletes_stale(self) -> None:
         local_chunks = [
