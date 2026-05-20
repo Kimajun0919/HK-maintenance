@@ -1,108 +1,158 @@
-# HK Maintenance Hybrid Retrieval System
+# HK Maintenance RAG / Search Architecture
 
-![Hybrid Retrieval Architecture](./docs/rag-hybrid-architecture.svg)
+이 문서는 현재 HK-maintenance 프로젝트의 검색/RAG 구조를 설명합니다. 이 프로젝트의 검색은 크게 두 가지 모드로 동작합니다.
 
-## 초록
+- `RAG_STARTUP_INDEX=0`: Render free tier처럼 메모리가 작은 서버용입니다. 시작 시 전체 청크 인덱스를 만들지 않고, Supabase DB에서 문서 레코드를 직접 검색합니다.
+- `RAG_STARTUP_INDEX=1`: 메모리가 충분한 서버용입니다. 시작 시 문서를 청크로 읽고 BM25, 문자 n-gram, 선택적 임베딩을 사용해 하이브리드 검색을 수행합니다.
 
-본 문서는 HK Maintenance 백엔드의 현재 문서 검색 구조를 논문 형식으로 정리한다. 시스템의 목표는 LLM 답변 생성이 아니라, 유지보수 문서에서 관련 원문 문서를 정확히 검색하는 것이다. 검색기는 BM25, 문자 n-gram 유사도, 청크 임베딩 유사도를 결합한 하이브리드 검색 구조를 사용하며, 결과는 청크 단위로 계산한 뒤 원본 문서 단위로 병합한다.
+`GET /api/search`는 검색 결과를 반환하는 API입니다. 자연어 답변 생성은 `POST /api/chat`에서 선택적으로 수행합니다.
 
-`GET /api/search`는 자연어 답변이나 요약을 생성하지 않는다. 이 엔드포인트는 검색 결과와 디버깅용 점수 상세만 반환한다.
+## 현재 데이터 구조
 
-## 1. 문제 정의
+Supabase에는 문서형 검색 데이터와 CSV 접수내역 구조화 데이터가 함께 들어갑니다.
 
-유지보수 문서 검색은 일반적인 키워드 검색만으로 충분하지 않다. 한국어 업무 문서에는 띄어쓰기 차이, 조사와 어미 변화, 약어, 오타, 영문/한글 혼용 표현이 자주 나타난다.
+| 테이블 | 역할 |
+|---|---|
+| `maintenance_docs` | Markdown 문서 원문과 폴더 메타데이터 |
+| `maintenance_docs_folders` | 앱에서 쓰는 폴더 구조 |
+| `maintenance_docs_assets` | 문서 첨부/이미지 자산 |
+| `maintenance_docs_chunks` | 청크, 검색용 정규화 필드, 선택적 임베딩 |
+| `maintenance_requests` | `유지보수 접수내역.csv` 30개 컬럼을 보존한 구조화 테이블 |
+| `maintenance_requests_imports` | CSV import 이력 |
 
-예를 들어 사용자는 `물이 새요`라고 검색하지만 문서에는 `누수 조치 내역`으로 기록될 수 있다. 또는 `엘베 고장`은 `승강기 유지보수` 문서와 연결되어야 한다. 따라서 현재 구조는 다음 세 가지 신호를 결합한다.
+CSV import 시에는 두 종류의 데이터가 생성됩니다.
 
-| 신호 | 목적 | 구현 위치 |
-|---|---|---|
-| BM25 | 정확한 키워드 기반 관련도 | [rag.py](./rag.py) `BM25Okapi` |
-| 문자 n-gram | 오타, 부분 일치, 띄어쓰기 차이 보정 | [rag.py](./rag.py) `char_ngram_tokens` |
-| 임베딩 유사도 | 후보 청크 재순위화 | [rag.py](./rag.py) `EmbeddingStore` |
+1. `maintenance_requests`에 원본 CSV 컬럼 구조를 유지한 구조화 레코드가 저장됩니다.
+2. `maintenance_docs`에는 검색/RAG에 쓰기 쉬운 Markdown 문서가 `유지보수_접수내역/접수_{번호}.md` 형식으로 저장됩니다.
 
-## 2. 전체 아키텍처
+이렇게 분리한 이유는 현재 앱 검색은 문서형 RAG에 맞춰져 있고, 향후 외부 DB나 업무 DB와 연결할 때는 `maintenance_requests` 같은 구조화 테이블을 기준으로 안정적으로 매핑할 수 있기 때문입니다.
+
+## Supabase 프로필
+
+한 코드베이스에서 여러 Supabase DB를 분리해서 쓸 수 있습니다. DB 선택은 사용자 화면에서 바꾸는 방식이 아니라, 배포 인스턴스별 환경변수로 고정하는 방식입니다.
+
+```env
+SUPABASE_PROFILE=main
+SUPABASE_PROFILE_STRICT=1
+SUPABASE_DB_URL_MAIN=postgresql://...
+```
+
+```env
+SUPABASE_PROFILE=fresh
+SUPABASE_PROFILE_STRICT=1
+SUPABASE_DB_URL_FRESH=postgresql://...
+```
+
+설정 로딩 규칙은 [config.py](./config.py)에 있습니다.
+
+- `SUPABASE_PROFILE=main`이면 `SUPABASE_DB_URL_MAIN`을 우선 사용합니다.
+- `SUPABASE_PROFILE=fresh`이면 `SUPABASE_DB_URL_FRESH`를 우선 사용합니다.
+- `SUPABASE_PROFILE_STRICT=1`이면 프로필 URL이 없을 때 기존 `SUPABASE_DB_URL`로 fallback하지 않습니다.
+
+운영에서는 `SUPABASE_PROFILE_STRICT=1`을 권장합니다. 잘못된 DB에 접속하는 사고를 막기 위한 설정입니다.
+
+## 저메모리 모드
+
+Render free tier는 메모리가 512Mi라서 전체 청크 인덱스, n-gram 인덱스, 임베딩 모델을 한 번에 올리기 어렵습니다. 이 프로젝트의 기본 Docker/Render 설정은 아래처럼 맞춰져 있습니다.
+
+```env
+RAG_STARTUP_INDEX=0
+RAG_ENABLE_NGRAM_INDEX=0
+RAG_ENABLE_LEGACY_INDEX=0
+EMBEDDING_BACKEND=none
+```
+
+이 모드의 동작은 다음과 같습니다.
+
+- 앱 시작 시 `load_chunks()`를 실행하지 않습니다.
+- `/api/meta`의 `chunkCount`가 `0`으로 보일 수 있습니다. 이는 정상입니다.
+- `/api/search`는 `maintenance_docs`를 DB에서 직접 조회해 결과를 만듭니다.
+- `/api/chat`도 검색 컨텍스트를 DB 기반 검색 결과에서 가져옵니다.
+- `/api/search-index/rebuild`는 청크 인덱스를 메모리에 재생성하지 않고 no-op에 가깝게 처리됩니다.
+
+즉, `chunkCount=0`이어도 문서 검색이 DB 기반으로 동작하면 정상 상태입니다.
+
+## 일반 서버 모드
+
+메모리가 1GB 이상인 서버에서는 시작 시 인메모리 검색 인덱스를 만들 수 있습니다.
+
+```env
+RAG_STARTUP_INDEX=1
+RAG_ENABLE_NGRAM_INDEX=0
+RAG_ENABLE_LEGACY_INDEX=0
+EMBEDDING_BACKEND=none
+```
+
+2GB 이상이면 문자 n-gram 인덱스까지 켤 수 있습니다.
+
+```env
+RAG_STARTUP_INDEX=1
+RAG_ENABLE_NGRAM_INDEX=1
+RAG_ENABLE_LEGACY_INDEX=1
+EMBEDDING_BACKEND=none
+```
+
+semantic embedding 실험은 더 많은 메모리가 필요합니다.
+
+```env
+RAG_STARTUP_INDEX=1
+RAG_ENABLE_NGRAM_INDEX=1
+RAG_ENABLE_LEGACY_INDEX=1
+EMBEDDING_BACKEND=sentence-transformers
+```
+
+`sentence-transformers`를 쓰려면 추가 의존성이 필요합니다.
+
+```powershell
+pip install -r backend/requirements-embeddings.txt
+```
+
+Render free tier에서는 이 설정을 권장하지 않습니다.
+
+## 검색 파이프라인
+
+### DB 기반 검색
+
+`RAG_STARTUP_INDEX=0`일 때의 경로입니다.
 
 ```mermaid
 flowchart LR
     U[사용자 검색어] --> N[검색어 정규화]
-    N --> S{동의어 사전 존재?}
-    S -- 없음 --> O[원본 검색어만 사용]
-    S -- 있음 --> E[동의어 확장]
-    O --> C[BM25 + 문자 n-gram 후보 검색]
-    E --> C
-    C --> K[상위 30-50개 청크 선택]
-    K --> Q[쿼리 임베딩 생성]
-    Q --> R[후보 청크 임베딩과 코사인 유사도]
-    R --> F[최종 점수 계산]
-    F --> G[원본 문서 단위 그룹화]
-    G --> A[검색 결과 + score_detail 반환]
+    N --> DB[Supabase maintenance_docs 조회]
+    DB --> S[문서 제목/폴더/본문 점수화]
+    S --> C[대표 matched_text 생성]
+    C --> R[문서 단위 검색 결과 반환]
 ```
 
-문서 업로드 또는 갱신 시에는 원문을 직접 수정하지 않고 검색용 필드만 별도로 만든다.
+주요 구현 위치:
 
-```mermaid
-flowchart TD
-    D[원본 Markdown 문서] --> CH[청크 분할]
-    CH --> M[문서 메타데이터 부착]
-    M --> NF[normalized_body 생성]
-    M --> CF[compact_body 생성]
-    NF --> B[BM25 인덱스]
-    CF --> NG[n-gram 데이터]
-    M --> EM[청크 임베딩 생성/캐시]
-```
-
-## 3. 데이터 모델
-
-검색 단위는 원본 문서가 아니라 청크다. 그러나 사용자에게 반환되는 최상위 결과는 원본 문서 단위다.
-
-```mermaid
-classDiagram
-    class Chunk {
-        text
-        source
-        title
-        document_id
-        chunk_id
-        heading
-        filename
-        folder
-        updated_at
-        normalized_body
-        compact_body
-    }
-
-    class SearchResult {
-        document_id
-        title
-        filename
-        folder
-        matched_heading
-        matched_text
-        score
-        score_detail
-        related_chunks
-    }
-
-    Chunk --> SearchResult : grouped by document_id
-```
-
-`Chunk` 모델은 [models.py](./models.py)에 정의되어 있다. 주요 필드는 다음과 같다.
-
-| 필드 | 설명 |
+| 파일 | 역할 |
 |---|---|
-| `document_id` | 원본 문서 식별자 |
-| `chunk_id` | 청크 식별자 |
-| `heading` | 청크가 속한 Markdown heading |
-| `filename` | 원본 파일명 |
-| `folder` | 문서 폴더 |
-| `normalized_body` | 검색용 정규화 본문 |
-| `compact_body` | 공백 제거 검색용 본문 |
+| [storage.py](./storage.py) | DB 문서 조회, DB 기반 검색 |
+| [rag.py](./rag.py) | low-memory retrieval fallback |
+| [app.py](./app.py) | `/api/search`, `/api/chat`, `/api/meta` |
 
-## 4. 정규화
+### 인메모리 하이브리드 검색
 
-정규화 함수는 [rag.py](./rag.py)의 `normalize_search_text`에 있다.
+`RAG_STARTUP_INDEX=1`일 때의 경로입니다.
 
-정규화 규칙은 다음과 같다.
+```mermaid
+flowchart LR
+    U[사용자 검색어] --> N[검색어 정규화]
+    N --> B[BM25]
+    N --> G[문자 n-gram]
+    B --> C[후보 청크 선택]
+    G --> C
+    C --> E[선택적 임베딩 재순위화]
+    E --> D[문서 단위 그룹화]
+    D --> R[검색 결과 반환]
+```
+
+검색 단위는 청크이지만, API 응답은 문서 단위로 그룹화됩니다. 같은 문서에서 여러 청크가 매칭되면 가장 높은 점수의 청크가 대표 결과가 되고 나머지는 `related_chunks`에 들어갑니다.
+
+## 정규화와 청크
+
+정규화 함수는 [rag.py](./rag.py)의 `normalize_search_text`에 있습니다.
 
 | 입력 특징 | 처리 |
 |---|---|
@@ -113,219 +163,77 @@ classDiagram
 | 한국어/영문/숫자 | 유지 |
 | 원본 문서 | 수정하지 않음 |
 
-예시:
+청크 분할은 [rag.py](./rag.py)의 `split_markdown`에서 수행합니다.
+
+1. Markdown heading을 기준으로 섹션을 나눕니다.
+2. 긴 섹션은 최대 길이 기준으로 다시 나눕니다.
+3. 각 청크에 원본 문서 메타데이터를 붙입니다.
+4. 검색용 `normalized_body`, `compact_body`를 별도로 만듭니다.
+
+## 점수 계산
+
+인메모리 검색의 기본 점수는 [settings.json](./settings.json)의 `search.weights`에서 조정합니다.
 
 ```txt
-원문: A/S request received and air conditioner filter replacement completed
-정규화: as request received and air conditioner filter replacement completed
-공백 제거: asrequestreceivedandairconditionerfilterreplacementcompleted
+final_score =
+  bm25_score * bm25_weight
++ ngram_score * ngram_weight
++ embedding_score * embedding_weight
++ field_boost
++ exact_match_boost
++ recency_boost
 ```
 
-## 5. 청크 분할
+주요 설정:
 
-문서 분할은 [rag.py](./rag.py)의 `split_markdown`에서 수행한다.
-
-현재 청크 전략:
-
-1. Markdown heading을 기준으로 섹션을 분리한다.
-2. 긴 섹션은 최대 길이 기준으로 다시 나눈다.
-3. 각 청크에 원본 문서 메타데이터를 붙인다.
-4. 검색용 정규화 필드를 별도로 생성한다.
-
-```mermaid
-flowchart LR
-    H1[# 제목] --> H2[## 섹션]
-    H2 --> P1[문단]
-    H2 --> P2[긴 본문]
-    P2 --> C1[chunk_0001]
-    P2 --> C2[chunk_0002]
-```
-
-## 6. 후보 검색
-
-후보 검색은 [rag.py](./rag.py)의 `_hybrid_search`에서 수행한다. 먼저 전체 청크에 대해 BM25와 n-gram 점수를 계산하고, 이 둘을 이용해 임베딩 비교 대상 후보를 제한한다.
-
-```mermaid
-sequenceDiagram
-    participant API as /api/search
-    participant R as Retriever
-    participant B as BM25
-    participant N as n-gram
-    participant E as EmbeddingStore
-    participant G as Grouping
-
-    API->>R: query, top_k
-    R->>R: normalize + optional synonym expansion
-    R->>B: lexical score for all chunks
-    R->>N: character overlap score for all chunks
-    R->>R: select candidate_limit chunks
-    R->>E: query embedding
-    E-->>R: vector
-    R->>E: candidate chunk vectors
-    R->>R: final score
-    R->>G: group by document_id
-    G-->>API: ranked documents
-```
-
-후보 제한은 성능상 중요하다. 임베딩 유사도는 모든 문서에 대해 매번 계산하지 않고, BM25와 n-gram으로 고른 상위 후보에 대해서만 계산한다.
-
-## 7. BM25
-
-BM25는 정확한 키워드 일치에 강하다. 구현은 순수 Python `BM25Okapi` 클래스다.
-
-기본 파라미터:
-
-```txt
-k1 = 1.5
-b = 0.75
-```
-
-검색 대상 필드:
-
-| 필드 |
-|---|
-| chunk body |
-| heading |
-| title |
-| filename |
-| folder |
-
-점수는 후보 청크 집합에서 0-1 범위로 정규화한다.
-
-## 8. 문자 n-gram
-
-문자 n-gram은 한국어 유지보수 문서 검색에서 중요한 보정 신호다.
-
-처리 방식:
-
-1. 한국어는 2-gram, 3-gram을 만든다.
-2. 영문과 숫자는 단어 토큰을 유지한다.
-3. 정규화 텍스트와 공백 제거 텍스트를 모두 비교한다.
-4. Jaccard similarity로 0-1 점수를 계산한다.
-
-예시:
-
-```txt
-검색어: 물이 새요
-n-gram: 물이, 이새, 새요, 물이새, 이새요 ...
-```
-
-## 9. 임베딩 유사도
-
-임베딩은 답변 생성에 사용하지 않는다. 현재 구조에서 임베딩은 후보 청크 재순위화에만 사용된다.
-
-현재 구현의 특징:
-
-| 항목 | 설명 |
+| 설정 | 설명 |
 |---|---|
-| 저장 단위 | chunk |
-| 캐시 파일 | `backend/.embedding_cache.json` |
-| Supabase 저장소 | `maintenance_docs_chunks` 또는 `SUPABASE_CHUNKS_TABLE` |
-| 재생성 조건 | 청크 내용 해시가 변경된 경우 |
-| 검색 시 계산 범위 | BM25 + n-gram 상위 후보 |
-| 유사도 | cosine similarity |
+| `candidate_limit` | BM25/n-gram으로 먼저 고르는 후보 수 |
+| `weights.bm25` | 키워드 점수 비중 |
+| `weights.ngram` | 문자 부분 일치 점수 비중 |
+| `weights.embedding` | 임베딩 재순위화 점수 비중 |
+| `field_boosts` | 제목, 파일명, 폴더, heading 매칭 가산점 |
+| `synonyms` | 선택적 검색어 확장 사전 |
 
-`EmbeddingStore`는 선택적으로 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 모델을 사용할 수 있다. 이 모델은 한국어를 포함한 다국어 문장 임베딩을 384차원 벡터로 생성한다. 운영 Docker 이미지는 Render free tier 메모리와 빌드 시간을 줄이기 위해 `sentence-transformers`를 기본 설치하지 않는다. 로컬에서 벡터 인덱스를 재생성할 때만 다음을 설치한다.
+동의어가 없어도 검색은 원본 검색어로 정상 동작합니다.
 
-```bash
-pip install -r backend/requirements-embeddings.txt
-```
+## 임베딩과 벡터 인덱스
 
-모델 로딩이 불가능하거나 `EMBEDDING_BACKEND=none`인 환경에서는 검색 기능이 완전히 중단되지 않도록 BM25/n-gram 기반으로 동작한다.
+임베딩은 답변 생성용이 아니라 후보 청크 재순위화용입니다.
 
-Supabase 사용 시 `pgvector` 확장을 활성화하고, 청크 단위 검색 인덱스를 별도 테이블에 저장한다.
+| 설정 | 동작 |
+|---|---|
+| `EMBEDDING_BACKEND=none` | 임베딩 비활성화 |
+| `EMBEDDING_BACKEND=hash` | 테스트용 deterministic embedding |
+| `EMBEDDING_BACKEND=sentence-transformers` | 다국어 sentence-transformers 모델 사용 |
 
-```txt
-maintenance_docs_chunks
-- chunk_id
-- document_id
-- source
-- title
-- filename
-- folder
-- heading
-- body
-- normalized_body
-- compact_body
-- body_hash
-- embedding vector(384)
-- updated_at
-- indexed_at
-```
-
-기존 문서 전체를 청크/벡터로 변환하려면 다음 명령을 실행한다.
+청크 벡터를 Supabase에 다시 만들려면 다음 명령을 사용합니다.
 
 ```powershell
 python scripts/rebuild_vector_index.py
 ```
 
-또는 서버 실행 중 다음 API를 호출할 수 있다.
+서버 실행 중에는 아래 API도 사용할 수 있습니다.
 
 ```txt
 POST /api/search-index/rebuild
 ```
 
-## 10. 동의어 확장
+저메모리 모드에서는 이 API가 전체 인메모리 인덱스를 재생성하지 않습니다. Render free tier에서 OOM을 피하기 위한 동작입니다.
 
-동의어 사전은 선택 사항이다. 기본 설정은 비어 있다.
+## 주요 API
 
-```json
-{
-  "synonyms": {}
-}
-```
+| Method | Path | 설명 |
+|---|---|---|
+| `GET` | `/api/meta` | 현재 프로필, 문서 수, 청크 수 등 상태 |
+| `GET` | `/api/search?q=...` | 문서 검색 |
+| `POST` | `/api/chat` | 검색 결과 기반 선택적 답변 생성 |
+| `POST` | `/api/search-index/rebuild` | 검색 인덱스 재생성 |
+| `GET` | `/api/folders` | 폴더 목록 |
+| `GET` | `/api/docs` | 문서 목록 |
+| `GET` | `/api/maintenance-requests/search?q=...` | 구조화 접수내역 검색 |
 
-동의어가 비어 있을 때:
-
-1. 예외를 발생시키지 않는다.
-2. 검색을 중단하지 않는다.
-3. 원본 검색어만 사용한다.
-
-동의어가 있을 때:
-
-1. 원본 검색어는 유지한다.
-2. 동의어는 검색어 확장에만 사용한다.
-3. 원본 문서 내용은 수정하지 않는다.
-4. 디버그 출력의 `expanded_terms`에 사용된 확장어를 포함한다.
-
-## 11. 최종 점수
-
-최종 점수는 설정 파일 [settings.json](./settings.json)의 `search.weights`에서 조정한다.
-
-```txt
-final_score =
-  bm25_score * 0.35
-+ ngram_score * 0.20
-+ embedding_score * 0.30
-+ field_boost * 0.10
-+ exact_match_boost * 0.05
-+ recency_boost
-```
-
-```mermaid
-pie title 기본 검색 점수 가중치
-    "BM25" : 35
-    "n-gram" : 20
-    "embedding" : 30
-    "field boost" : 10
-    "exact match" : 5
-```
-
-필드 부스트 기본값:
-
-| 필드 | 부스트 |
-|---|---:|
-| title | 0.30 |
-| filename | 0.25 |
-| folder | 0.20 |
-| heading | 0.15 |
-| body | 0.05 |
-
-부스트는 `field_boost_cap`으로 제한하여 본문 관련도를 압도하지 않게 한다.
-
-## 12. 결과 포맷
-
-`GET /api/search`의 응답은 문서 단위 결과를 반환한다.
+`/api/search` 응답 예시:
 
 ```json
 {
@@ -334,21 +242,19 @@ pie title 기본 검색 점수 가중치
   "results": [
     {
       "document_id": "doc_id",
-      "title": "냉난방기 필터 청소",
-      "filename": "filter.md",
-      "folder": "facility/hvac",
-      "matched_heading": "공조기 점검",
-      "matched_text": "에어컨 냄새가 날 때 필터를 교체하고...",
+      "title": "접수_75",
+      "filename": "접수_75.md",
+      "folder": "유지보수_접수내역",
+      "matched_heading": "접수 정보",
+      "matched_text": "접수 내용 일부...",
       "score": 0.87,
       "score_detail": {
         "bm25": 0.72,
         "ngram": 0.64,
-        "embedding": 0.91,
+        "embedding": 0.0,
         "field_boost": 0.25,
         "exact_match_boost": 0.03,
-        "recency_boost": 0.02,
-        "synonym_used": false,
-        "expanded_terms": []
+        "recency_boost": 0.0
       },
       "related_chunks": []
     }
@@ -356,78 +262,70 @@ pie title 기본 검색 점수 가중치
 }
 ```
 
-같은 문서에서 여러 청크가 매칭되면 가장 높은 점수의 청크가 대표 결과가 되고, 나머지는 `related_chunks`에 들어간다.
+## CSV 접수내역 import
 
-## 13. API 경계
+새 CSV를 넣을 때는 구조를 유지한 채 import합니다.
 
-```mermaid
-flowchart TB
-    Search[GET /api/search] --> Retrieval[검색 결과만 반환]
-    Chat[POST /api/chat] --> Retrieval2[검색 컨텍스트 구성]
-    Chat --> LLM[선택적 LLM 답변 생성]
-    Search -. 생성 안 함 .-> NoLLM[LLM 답변 생성 없음]
+```powershell
+python scripts/import_maintenance_requests_csv.py "유지보수 접수내역.csv"
 ```
 
-주의할 점:
+dry run:
 
-| API | LLM 사용 | 설명 |
-|---|---|---|
-| `GET /api/search` | 사용 안 함 | 문서 검색 결과만 반환 |
-| `POST /api/chat` | 선택적으로 사용 | 검색 결과를 컨텍스트로 답변 생성 가능 |
+```powershell
+python scripts/import_maintenance_requests_csv.py "유지보수 접수내역.csv" --dry-run
+```
 
-따라서 검색 품질 개선은 `/api/search`의 retrieval 파이프라인을 기준으로 판단해야 한다.
+새 Supabase DB를 처음 만들 때:
 
-## 14. 평가 케이스
+```powershell
+python scripts/bootstrap_fresh_supabase.py --profile fresh
+```
 
-테스트는 [test_hybrid_search.py](./test_hybrid_search.py)에 있다.
+CSV까지 바로 넣을 때:
 
-| 검색어 | 기대 문서 |
-|---|---|
-| `물이 새요` | 누수 조치 내역, 배관 점검, 물샘 관련 문서 |
-| `엘베 고장` | 엘리베이터 점검, 승강기 유지보수 문서 |
-| `전기 내려감` | 차단기, 브레이커, 전기 트립 문서 |
-| `에어컨 냄새` | 냉난방기 필터 청소, 공조기 점검 문서 |
-| `도면 확인` | 평면도, CAD, 도면 문서 |
-| `as 접수` | A/S 처리 내역, 수리 접수, 점검 요청 문서 |
+```powershell
+python scripts/bootstrap_fresh_supabase.py --profile fresh --csv "유지보수 접수내역.csv"
+```
 
-실행:
+## 테스트
+
+검색 단위 테스트:
 
 ```powershell
 python -m unittest backend.test_hybrid_search
 ```
 
-검색 품질 평가는 [search_quality_cases.json](./search_quality_cases.json)의 30개 유지보수 쿼리를 사용한다.
+검색 품질 평가:
 
 ```powershell
 python backend/eval_hybrid_search.py
 ```
 
-API 디버깅은 다음처럼 켤 수 있다.
+API 디버깅:
 
 ```txt
 GET /api/search?q=물이 새요&debug=true
 ```
 
-debug 응답에는 정규화 검색어, 확장어, 후보 청크 수, 임베딩 사용 여부, 최종 점수와 세부 점수가 포함된다.
+debug 응답에는 정규화 검색어, 확장어, 후보 수, 임베딩 사용 여부, 최종 점수와 세부 점수가 포함됩니다.
 
-## 15. 한계와 확장 방향
+## 운영 체크리스트
 
-현재 구조는 실제 sentence-transformers 임베딩을 사용하지만, 검색 후보 생성은 여전히 인메모리 BM25 + n-gram 기반이다. Supabase의 벡터 테이블은 청크 임베딩 영속화와 운영 재사용을 담당한다.
+- Render free tier에서는 `RAG_STARTUP_INDEX=0`, `EMBEDDING_BACKEND=none`을 유지합니다.
+- `chunkCount=0`은 저메모리 모드에서 정상일 수 있습니다. `docCount`와 검색 결과를 함께 확인합니다.
+- DB별 앱을 따로 띄울 때는 Render 서비스를 두 개 만들고 `SUPABASE_PROFILE`과 프로필별 URL만 다르게 넣습니다.
+- `SUPABASE_PROFILE_STRICT=1`을 유지해 다른 DB로 fallback되는 것을 막습니다.
+- Supabase 접속 문자열, service role key, DB 비밀번호는 README나 git에 넣지 않습니다.
 
-향후 개선 방향:
-
-1. Supabase vector similarity SQL을 이용한 대규모 후보 검색
-2. 동의어 사전 관리 UI 또는 DB 테이블 추가
-3. 검색 로그 기반 weight 튜닝
-4. 문서별 클릭/선택 피드백 기반 reranking
-5. chunk 크기와 overlap에 대한 오프라인 평가
-
-## 16. 핵심 파일
+## 핵심 파일
 
 | 파일 | 역할 |
 |---|---|
-| [rag.py](./rag.py) | 검색 정규화, 청크 분할, BM25, n-gram, 임베딩, scoring, grouping |
-| [models.py](./models.py) | `Chunk` 데이터 모델 |
-| [settings.json](./settings.json) | 검색 가중치, 동의어, BM25 설정 |
-| [app.py](./app.py) | `/api/search` 엔드포인트 |
+| [rag.py](./rag.py) | 정규화, 청크 분할, 검색, RAG fallback |
+| [storage.py](./storage.py) | Supabase 문서 저장/조회, DB 기반 검색 |
+| [maintenance_requests.py](./maintenance_requests.py) | CSV 접수내역 구조화 import/search |
+| [config.py](./config.py) | Supabase 프로필과 RAG 환경변수 |
+| [app.py](./app.py) | API 엔드포인트 |
+| [settings.json](./settings.json) | 검색 가중치와 동의어 설정 |
 | [test_hybrid_search.py](./test_hybrid_search.py) | 검색 단위 테스트 |

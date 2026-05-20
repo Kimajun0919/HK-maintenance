@@ -1,385 +1,283 @@
 # HK-maintenance
 
-## Security Defaults
+HK-maintenance는 유지보수 문서와 접수내역을 Supabase에 저장하고, 폴더 기반 문서 관리와 RAG 검색/질문을 제공하는 웹 포털입니다.
 
-- Local execution binds to `127.0.0.1` by default. Use `APP_HOST=0.0.0.0` only when another device must connect.
-- Render must bind to `0.0.0.0`; `render.yaml` sets `APP_HOST=0.0.0.0` and `APP_PORT=8080`.
-- `/api/folder/parse` is local-only by default. Remote folder parsing requires `APP_ALLOW_REMOTE_FOLDER_PARSE=1`.
-- Release zip packaging redacts document lines that look like credentials unless `-SkipRedaction` is passed.
-
-기업별 유지보수 매뉴얼, 운영 참고자료를 보존·관리하고 RAG 기반으로 검색·질문할 수 있는 웹 포털입니다.
-
-## 구조
-
-| 경로 | 설명 |
-|---|---|
-| `backend/` | FastAPI 백엔드 (RAG 검색·질문, 문서 CRUD API) |
-| `frontend/` | React 웹 포털 (CDN 기반, 빌드 없음) |
-| `apps/windows/` | Windows WebView2 앱 골격 |
-| `apps/macos/` | macOS WebView 앱 골격 |
-| `apps/android/` | Android WebView 앱 골격 |
-| `organized_maintenance_docs_simple/` | 기본 문서 정리본 (Supabase 미사용 시 파일 소스) |
-| `original_backup/` | 원본 md 및 이미지 파일 백업 |
-| `scripts/deploy_hf_space.py` | Hugging Face Spaces 배포 번들 생성 스크립트 |
-| `Dockerfile` | Render.com / 컨테이너 배포용 |
-| `render.yaml` | Render.com Blueprint 설정 |
-| `.github/workflows/deploy.yml` | GitHub Actions 자동 배포 (Render.com) |
+프론트엔드는 별도 빌드 없이 CDN React로 동작하고, 백엔드는 FastAPI로 정적 파일과 API를 함께 제공합니다.
 
 ## 주요 기능
 
-- **문서 관리**: 폴더·파일 CRUD, 이름 변경, 드래그 정렬, 고정 핀
-- **첨부 변환**: `.md` / `.docx` / `.pdf` 업로드 시 Markdown 자동 변환
-- **이미지 관리**: 에디터 내 이미지 업로드, 첨부 이미지 삭제
-- **휴지통**: 삭제 후 30일 보관, 복원·영구 삭제
-- **RAG 검색**: 문자 n-gram 기반 문서 검색
-- **LLM 질문**: 외부 API 연동 (Claude, OpenAI-compatible, Groq, Ollama, Luxia 등)
-- **API 관리**: 여러 LLM API 등록·선택 (인증 헤더·엔드포인트 커스텀)
-- **폴더 파서**: 로컬 폴더의 `.md`, `.txt`, `.docx`, `.pdf`, `.xlsx` 문서를 분석·가져오기
-- **폴더 관리 모달**: Windows 탐색기 스타일, 그리드/리스트 전환
+- 폴더/문서 CRUD
+- Markdown, TXT, DOCX, PDF, XLSX 문서 import
+- 이미지 asset 업로드와 문서 내 참조
+- 휴지통, 복원, 영구 삭제
+- Supabase/PostgreSQL 기반 문서 저장
+- CSV 유지보수 접수내역 import
+- 접수내역 구조화 테이블과 검색용 문서 동시 생성
+- RAG 검색과 LLM 질문
+- Claude, OpenAI-compatible, Ollama, Groq, Luxia 등 외부 LLM API 설정
+- Render/Docker 배포
+- Supabase DB 프로필 분리 운영
 
-## 배포
+## 디렉터리 구조
 
-### Render.com (권장)
-
-GitHub 연동 자동 배포. 카드 불필요, 무료 티어 사용 가능.
-
-1. [render.com](https://render.com) → New → Blueprint → 이 레포 연결
-2. `SUPABASE_DB_URL` 환경변수 직접 입력
-3. `main` 브랜치 푸시 시 자동 재배포
-
-### Hugging Face Spaces (보조)
-
-```powershell
-# .env에 HF_TOKEN, HF_SPACE_ID, HF_DEPLOY=1 설정 후
-python scripts/deploy_hf_space.py
-```
-
-HuggingFace Space 시크릿에 `SUPABASE_DB_URL`, `SUPABASE_SEED_FROM_FILES=0` 추가 필요.
-
-### 앱 링크 배포
-
-스토어에 올리지 않고 링크로 배포하려면 GitHub Releases 또는 사내 파일 서버에 산출물을 올립니다.
-
-로컬 실행 번들 zip 생성:
-
-```powershell
-.\scripts\package-local.ps1 -Version manual
-```
-
-PowerShell 실행 정책으로 막히면:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version manual
-```
-
-Windows 앱 zip 생성:
-
-```powershell
-.\scripts\build-windows-app.ps1 -Version manual
-```
-
-macOS 앱 런처 zip 생성은 macOS에서 실행합니다.
-
-```bash
-bash scripts/build-macos-launcher.sh manual
-```
-
-Android APK 생성은 Android SDK와 Gradle이 있는 환경에서 실행합니다.
-
-```bash
-bash scripts/build-android-apk.sh manual
-```
-
-GitHub Actions에서 자동 패키징:
-
-```text
-.github/workflows/package-apps.yml
-```
-
-태그를 `v1.0.0`처럼 푸시하면 Release에 zip/apk가 첨부됩니다. 자세한 링크 배포 절차는 `release/README.md`를 참고하세요.
+| 경로 | 설명 |
+|---|---|
+| `backend/` | FastAPI 백엔드, RAG 검색, Supabase storage |
+| `frontend/` | React 포털 UI |
+| `scripts/` | 배포, CSV import, vector index rebuild 스크립트 |
+| `apps/windows/` | Windows WebView 앱 |
+| `apps/macos/` | macOS WebView 앱 |
+| `apps/android/` | Android WebView 앱 |
+| `render.yaml` | Render Blueprint 설정 |
+| `Dockerfile` | Render/Docker 배포 이미지 |
+| `.env.example` | 환경변수 예시 |
 
 ## 로컬 실행
 
-### 더블클릭으로 실행하기
+Windows에서는 루트 폴더의 `start-local.bat`를 실행하면 가상환경 준비, 의존성 설치, 서버 실행, 브라우저 열기를 자동으로 처리합니다.
 
-Windows에서는 루트 폴더의 `start-local.bat`을 더블클릭하면 로컬 서버를 실행하고 브라우저를 엽니다.
-
-```text
-start-local.bat
-```
-
-서버를 끄려면 실행 창에서 `Ctrl + C`를 누르거나, 루트 폴더의 `stop-local.bat`을 더블클릭합니다.
-
-```text
-stop-local.bat
-```
-
-`start-local.bat`은 다음 작업을 자동으로 처리합니다.
-
-- `.venv` 가상환경이 없으면 생성
-- `backend\requirements.txt` 패키지 설치
-- `http://127.0.0.1:7860` 브라우저 열기
-- `python backend\app.py` 서버 실행
-- 이미 `7860` 포트에 서버가 떠 있으면 새로 띄우지 않고 브라우저만 열기
-
-macOS에서는 루트 폴더의 `start-local.command`를 더블클릭하면 같은 방식으로 실행됩니다. 처음 한 번은 터미널에서 실행 권한을 부여해야 할 수 있습니다.
-
-```bash
-chmod +x start-local.command stop-local.command
-```
-
-이후에는 Finder에서 더블클릭으로 실행합니다.
-
-```text
-start-local.command
-```
-
-서버를 끄려면 실행 창에서 `Ctrl + C`를 누르거나, 루트 폴더의 `stop-local.command`를 더블클릭합니다.
-
-```text
-stop-local.command
-```
-
-아래는 수동 실행이 필요할 때 참고하는 절차입니다.
-
-아래 절차는 Windows PowerShell 기준입니다. 프로젝트 폴더가 `C:\test\HK-maintenance`에 있다고 가정합니다.
-
-### 1. 프로젝트 폴더로 이동
+수동 실행:
 
 ```powershell
 cd C:\test\HK-maintenance
-```
-
-### 2. Python 버전 확인
-
-```powershell
-python --version
-```
-
-Python이 없다고 나오면 Python 3.11 이상을 설치한 뒤 PowerShell을 새로 열어 다시 확인합니다.
-
-### 3. 가상환경 만들기
-
-처음 한 번만 실행합니다.
-
-```powershell
 python -m venv .venv
-```
-
-가상환경을 켭니다.
-
-```powershell
 .\.venv\Scripts\Activate.ps1
-```
-
-PowerShell 실행 정책 때문에 막히면 아래 명령을 한 번 실행한 뒤 다시 활성화합니다.
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-.\.venv\Scripts\Activate.ps1
-```
-
-정상적으로 켜지면 프롬프트 앞에 `(.venv)`가 붙습니다.
-
-### 4. 패키지 설치
-
-```powershell
 pip install -r backend\requirements.txt
-```
-
-### 5. 환경변수 파일 준비
-
-루트 폴더에 `.env` 파일이 있어야 합니다. 이미 있으면 그대로 사용합니다.
-
-없으면 예시 파일을 복사합니다.
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Supabase를 사용하는 경우 `.env`에 아래 값이 필요합니다.
-
-```env
-DOC_STORAGE=supabase
-SUPABASE_DB_URL=postgresql://...
-SUPABASE_SEED_FROM_FILES=0
-```
-
-Supabase 없이 로컬 파일만으로 테스트하려면 `SUPABASE_DB_URL`을 비워두거나 주석 처리하고, `DOC_STORAGE`도 비워둡니다.
-
-### 6. 로컬 서버 실행
-
-```powershell
 python backend\app.py
 ```
 
-정상 실행되면 브라우저에서 아래 주소로 접속합니다.
+접속:
 
 ```text
 http://127.0.0.1:7860
 ```
 
-같은 네트워크의 다른 PC나 모바일에서 접속하려면 실행 중인 PC의 내부 IP를 사용합니다.
-
-```text
-http://내_PC_IP:7860
-```
-
-예를 들어 PC IP가 `192.168.0.10`이면 `http://192.168.0.10:7860`입니다.
-
-### 7. 서버 상태 확인
-
-다른 PowerShell 창에서 확인할 수 있습니다.
+상태 확인:
 
 ```powershell
-Invoke-WebRequest http://127.0.0.1:7860/healthz -UseBasicParsing
+Invoke-RestMethod http://127.0.0.1:7860/healthz
+Invoke-RestMethod http://127.0.0.1:7860/api/meta
 ```
 
-`"ok": true`가 보이면 서버가 정상입니다.
+`/api/meta`의 `supabaseProfile` 값으로 현재 바라보는 DB 프로필을 확인할 수 있습니다.
 
-### 8. Ollama로 AI 질문 사용하기
+## 필수 환경변수
 
-Render 같은 외부 서버에서는 로컬/Tailscale Ollama 주소에 접근하지 못할 수 있습니다. Ollama를 쓰려면 이 앱도 로컬에서 실행하는 것이 가장 단순합니다.
+Supabase를 쓰는 기본 설정:
 
-앱 화면에서 `API 관리`를 열고 새 API를 추가합니다.
+```env
+DOC_STORAGE=supabase
+SUPABASE_PROFILE=main
+SUPABASE_PROFILE_STRICT=1
+SUPABASE_DB_URL_MAIN=postgresql://...
+SUPABASE_SEED_FROM_FILES=0
+SUPABASE_AUTO_MIGRATE=0
+```
 
-| 항목 | 값 |
+로컬 파일만으로 테스트하려면 Supabase URL을 비우고 `DOC_STORAGE=files`로 둡니다.
+
+```env
+DOC_STORAGE=files
+```
+
+## Supabase 프로필 운영
+
+이 프로젝트는 하나의 코드로 여러 Supabase DB를 분리해서 운영할 수 있습니다. 사용자가 화면에서 DB를 선택하는 방식이 아니라, 앱 인스턴스마다 하나의 DB를 바라보게 하는 방식입니다.
+
+```env
+SUPABASE_PROFILE=main
+SUPABASE_PROFILE_STRICT=1
+SUPABASE_DB_URL_MAIN=postgresql://...
+SUPABASE_DB_URL_FRESH=postgresql://...
+```
+
+- `SUPABASE_PROFILE=main`: `SUPABASE_DB_URL_MAIN` 사용
+- `SUPABASE_PROFILE=fresh`: `SUPABASE_DB_URL_FRESH` 사용
+- `SUPABASE_PROFILE_STRICT=1`: 프로필 URL이 없으면 기존 `SUPABASE_DB_URL`로 fallback하지 않음
+
+DB URL은 git에 커밋하지 않습니다. 로컬은 `.env`, Render는 Secret Env Var에만 저장합니다.
+
+## 새 Supabase DB 초기화
+
+fresh DB 같은 새 Supabase 프로젝트를 만든 뒤, 로컬에서 스키마와 CSV 데이터를 넣습니다.
+
+```powershell
+$env:NEW_SUPABASE_DB_URL="postgresql://..."
+python scripts/bootstrap_fresh_supabase.py "유지보수 접수내역.csv"
+```
+
+이미 빈 스키마가 있는 DB에 다시 넣을 때:
+
+```powershell
+$env:NEW_SUPABASE_DB_URL="postgresql://..."
+python scripts/bootstrap_fresh_supabase.py "유지보수 접수내역.csv" --allow-non-empty
+```
+
+CSV 구조만 확인:
+
+```powershell
+python scripts/bootstrap_fresh_supabase.py "유지보수 접수내역.csv" --dry-run
+```
+
+bootstrap 스크립트가 하는 일:
+
+- `maintenance_docs` 생성
+- `maintenance_docs_folders` 생성
+- `maintenance_docs_assets` 생성
+- `maintenance_docs_chunks` 생성
+- `maintenance_requests` 생성
+- `maintenance_requests_imports` 생성
+- CSV 30개 컬럼을 `maintenance_requests`에 보존
+- `idx` 기준으로 upsert
+- `유지보수_접수내역/접수_{idx}.md` 문서를 생성해 기존 폴더 UI/RAG 검색에 연결
+
+## CSV 접수내역 import
+
+현재 CSV 구조는 다음 컬럼을 기대합니다.
+
+```text
+idx,user_id,contact_person,manager_id,worker_id,type_id,status_id,title,content,
+request_date,expected_date,completed_date,
+expected_pm_hours,expected_design_hours,expected_pub_hours,expected_dev_hours,
+expected_hours_confirmed,expected_hours_confirmed_at,
+actual_pm_hours,actual_design_hours,actual_pub_hours,actual_dev_hours,
+is_urgent,issues,report_title,progress_rate,progress_status,notes,created_at,updated_at
+```
+
+기존 DB에 같은 CSV를 다시 넣어도 `idx` 기준으로 갱신됩니다.
+
+```powershell
+python scripts/import_maintenance_requests_csv.py "유지보수 접수내역.csv"
+```
+
+## Render 배포
+
+`render.yaml`은 DB별로 앱을 따로 띄우도록 구성되어 있습니다.
+
+| Render service | Profile | Required secret env |
+|---|---|---|
+| `hk-maintenance-rag` | `main` | `SUPABASE_DB_URL_MAIN` |
+| `hk-maintenance-rag-fresh` | `fresh` | `SUPABASE_DB_URL_FRESH` |
+
+배포 순서:
+
+1. Render Dashboard에서 Blueprint를 이 GitHub repo에 연결합니다.
+2. `hk-maintenance-rag` 서비스 Environment에 `SUPABASE_DB_URL_MAIN`을 Secret Env Var로 넣습니다.
+3. `hk-maintenance-rag-fresh` 서비스 Environment에 `SUPABASE_DB_URL_FRESH`를 Secret Env Var로 넣습니다.
+4. 두 서비스를 각각 Deploy합니다.
+
+두 서비스는 같은 코드와 Dockerfile을 쓰지만 서로 다른 DB를 봅니다.
+
+```text
+https://hk-maintenance-rag.onrender.com        -> main DB
+https://hk-maintenance-rag-fresh.onrender.com  -> fresh DB
+```
+
+## Render Free Tier 메모리 설정
+
+Render free tier는 512Mi 메모리 제한이 있습니다. main DB처럼 문서가 많을 때 전체 RAG 인덱스를 시작 시 메모리에 만들면 OOM이 발생할 수 있습니다. 그래서 Dockerfile과 `render.yaml`은 저메모리 모드를 기본값으로 둡니다.
+
+```env
+RAG_STARTUP_INDEX=0
+RAG_ENABLE_NGRAM_INDEX=0
+RAG_ENABLE_LEGACY_INDEX=0
+EMBEDDING_BACKEND=none
+```
+
+이 모드에서는 앱 시작 시 전체 인덱스를 만들지 않고, 검색 요청 때 Supabase DB에 직접 질의합니다. 폴더 목록, 문서 CRUD, 검색 UI는 그대로 동작합니다.
+
+사양별 권장값:
+
+| 서버 사양 | 설정 |
 |---|---|
-| 유형 | `OpenAI-compatible` |
-| Base URL | `http://100.84.152.5:11434/v1` |
-| API Key | 비워둠 |
-| 인증 헤더 이름 | 비워둠 |
-| 채팅 엔드포인트 경로 | 비워둠 또는 `/chat/completions` |
-| 모델 | `hermes3:latest` 또는 `llama3.1:8b` 등 Ollama에 설치된 모델명 |
+| Render free / 512Mi | `RAG_STARTUP_INDEX=0`, `RAG_ENABLE_NGRAM_INDEX=0`, `RAG_ENABLE_LEGACY_INDEX=0`, `EMBEDDING_BACKEND=none` |
+| 일반 서버 / 1-2GB | `RAG_STARTUP_INDEX=1`, `RAG_ENABLE_NGRAM_INDEX=0`, `RAG_ENABLE_LEGACY_INDEX=0`, `EMBEDDING_BACKEND=none` |
+| 고사양 서버 / 2GB+ | `RAG_STARTUP_INDEX=1`, `RAG_ENABLE_NGRAM_INDEX=1`, `RAG_ENABLE_LEGACY_INDEX=1`, `EMBEDDING_BACKEND=none` |
+| semantic 실험 / 4GB+ | `RAG_STARTUP_INDEX=1`, `RAG_ENABLE_NGRAM_INDEX=1`, `RAG_ENABLE_LEGACY_INDEX=1`, `EMBEDDING_BACKEND=sentence-transformers` |
 
-주의할 점:
-
-- Base URL에 이미 `/v1`이 들어가 있으면 채팅 경로에 `/v1/chat/completions`를 넣지 않습니다.
-- 모델명을 비워두면 기본값 `gpt-4o-mini`가 전송될 수 있고, Ollama에 없는 모델이라 실패합니다.
-- Ollama 서버가 다른 PC에 있으면 방화벽에서 `11434` 포트 접근이 허용되어야 합니다.
-
-Ollama 연결만 따로 확인하려면:
+semantic embedding 모드는 추가 패키지가 필요합니다.
 
 ```powershell
-Invoke-WebRequest http://100.84.152.5:11434/v1/models -UseBasicParsing
+pip install -r backend\requirements-embeddings.txt
 ```
 
-모델 목록이 JSON으로 나오면 연결은 정상입니다.
+## Docker 배포
 
-### 8-1. OpenAI-compatible / Luxia 등 다른 LLM API 설정
+Dockerfile 기본값은 저메모리 모드입니다.
 
-Claude를 제외한 대부분의 외부 LLM API는 `OpenAI-compatible` 유형으로 등록합니다. 공급자마다 Base URL, 인증 헤더, 채팅 경로만 다릅니다.
-
-| 공급자 예시 | Base URL | 인증 헤더 이름 | 채팅 엔드포인트 경로 |
-|---|---|---|---|
-| OpenAI | `https://api.openai.com/v1` | 비워둠 | 비워둠 |
-| Groq | `https://api.groq.com/openai/v1` | 비워둠 | 비워둠 |
-| Ollama | `http://localhost:11434/v1` 또는 Tailscale 주소 | 비워둠 | 비워둠 |
-| LM Studio | `http://localhost:1234/v1` | 비워둠 | 비워둠 |
-| Luxia | `https://bridge.luxiacloud.com/luxia/v1` | `apikey` | `/chat` |
-
-호환성 기준:
-
-- 기본 경로는 `/chat/completions`입니다.
-- 채팅 경로에 전체 URL을 넣어도 됩니다.
-- Base URL이 `/v1`로 끝나는데 경로를 `/v1/chat/completions`로 넣어도 중복 `/v1/v1`이 생기지 않도록 처리합니다.
-- 응답은 `choices[0].message.content`, `choices[0].text`, `answer`, `response`, `output_text`, `content`, `message`, `result` 형태를 모두 읽습니다.
-- `apikey`처럼 Bearer가 아닌 인증은 `인증 헤더 이름`에 해당 헤더명을 넣고 API Key에 값을 넣습니다.
-- 일반 Bearer 인증은 `인증 헤더 이름`을 비워두면 됩니다.
-
-### 8-2. 폴더 파서 사용하기
-
-오른쪽 패널에서 `폴더 파서` 탭을 선택합니다.
-
-1. `로컬 폴더 경로`에 서버가 접근할 수 있는 폴더 경로를 입력합니다.
-2. 필요하면 `가져올 폴더명`을 입력합니다.
-3. `분석`을 눌러 가져올 문서와 저장될 경로를 먼저 확인합니다.
-4. 문제가 없으면 `가져오기`를 누릅니다.
-
-지원 확장자:
-
-```text
-.md, .txt, .docx, .pdf, .xlsx
+```bash
+docker build -t hk-maintenance-rag .
+docker run -p 8080:8080 \
+  -e DOC_STORAGE=supabase \
+  -e SUPABASE_PROFILE=main \
+  -e SUPABASE_PROFILE_STRICT=1 \
+  -e SUPABASE_DB_URL_MAIN=postgresql://... \
+  hk-maintenance-rag
 ```
 
-주의:
+더 큰 서버에서 startup index를 켜려면:
 
-- 폴더 파서는 “백엔드 서버가 실행 중인 컴퓨터”의 경로를 읽습니다.
-- Render 같은 외부 서버에서는 내 PC의 로컬 폴더 경로를 읽을 수 없습니다.
-- Android 앱은 현재 서버 접속형 WebView 골격입니다. Android 기기 내부 폴더를 직접 가져오려면 파일 업로드 방식이 별도로 필요합니다.
-
-### 8-3. Windows / macOS / Android 앱 골격
-
-Windows 앱 골격:
-
-```text
-apps/windows/
+```bash
+docker run -p 8080:8080 \
+  -e DOC_STORAGE=supabase \
+  -e SUPABASE_PROFILE=main \
+  -e SUPABASE_PROFILE_STRICT=1 \
+  -e SUPABASE_DB_URL_MAIN=postgresql://... \
+  -e RAG_STARTUP_INDEX=1 \
+  -e RAG_ENABLE_NGRAM_INDEX=1 \
+  -e RAG_ENABLE_LEGACY_INDEX=1 \
+  hk-maintenance-rag
 ```
 
-macOS 앱 골격:
+## 주요 API
 
-```text
-apps/macos/
-```
+| Method | Path | 설명 |
+|---|---|---|
+| `GET` | `/api/meta` | 앱 상태, storage, profile, doc count |
+| `GET` | `/api/docs` | 문서/폴더 목록 |
+| `GET` | `/api/doc?source=...` | 문서 조회 |
+| `POST` | `/api/doc` | 문서 생성 |
+| `PUT` | `/api/doc` | 문서 수정 |
+| `DELETE` | `/api/doc` | 문서 휴지통 이동 |
+| `GET` | `/api/search?q=...` | RAG 검색 |
+| `POST` | `/api/chat` | 검색 기반 LLM 질문 |
+| `POST` | `/api/search-index/rebuild` | 검색 인덱스 재생성 |
+| `GET` | `/api/maintenance-requests/search?q=...` | 구조화 접수내역 검색 |
+| `POST` | `/api/folder/parse` | 서버 로컬 폴더 import |
+| `GET` | `/api/trash` | 휴지통 목록 |
+| `POST` | `/api/trash/restore` | 휴지통 복원 |
+| `DELETE` | `/api/trash` | 영구 삭제 |
 
-Android 앱 골격:
+## LLM API 설정
 
-```text
-apps/android/
-```
+UI의 API 관리에서 여러 LLM provider를 등록할 수 있습니다.
 
-현재 앱들은 로컬 또는 네트워크 서버 URL을 WebView로 여는 방식입니다. 핵심 기능은 기존 웹 UI와 백엔드 API를 그대로 사용합니다.
+지원 형태:
 
-### 9. 서버 종료
+- Claude
+- OpenAI-compatible
+- Groq
+- Ollama
+- LM Studio
+- Luxia
 
-서버를 실행한 PowerShell 창에서 `Ctrl + C`를 누릅니다.
+Render 같은 외부 서버는 로컬 PC의 Ollama 또는 Tailscale 사설 주소에 접근하지 못할 수 있습니다. Ollama를 쓰려면 앱도 로컬에서 실행하거나, Render에서 접근 가능한 공개 API를 사용해야 합니다.
 
-백그라운드로 실행한 서버를 PID로 종료하려면:
+## 테스트
 
 ```powershell
-Stop-Process -Id 26156
+python -m unittest backend.test_hybrid_search
 ```
 
-PID는 실행할 때마다 바뀝니다. 현재 `7860` 포트를 사용하는 프로세스를 찾으려면:
+검색 품질 케이스:
 
 ```powershell
-Get-NetTCPConnection -LocalPort 7860 | Select-Object LocalAddress,LocalPort,State,OwningProcess
+python backend/eval_hybrid_search.py
 ```
 
-### 자주 나는 문제
+## 보안 주의사항
 
-#### `address already in use` 또는 `10048` 오류
-
-이미 `7860` 포트를 쓰는 서버가 떠 있는 상태입니다. 기존 서버를 종료하거나 다른 포트를 씁니다.
-
-```powershell
-$env:APP_PORT=7861
-python backend\app.py
-```
-
-이 경우 접속 주소는 `http://127.0.0.1:7861`입니다.
-
-#### 브라우저 콘솔에 `favicon.ico 404`가 보임
-
-기능에는 영향이 없습니다. 현재 서버는 `/favicon.ico` 요청에 빈 응답을 주도록 처리되어 있습니다.
-
-#### `A listener indicated an asynchronous response...` 콘솔 오류
-
-대부분 Chrome 확장 프로그램에서 발생합니다. 시크릿 창에서 확장 프로그램을 끄고 접속해 확인합니다.
-
-#### AI 질문은 안 되고 검색만 됨
-
-API 관리에서 선택된 API가 있는지, 모델명이 Ollama에 실제로 있는 모델명인지 확인합니다.
-
-```powershell
-Invoke-WebRequest http://100.84.152.5:11434/v1/models -UseBasicParsing
-```
-
-#### Render에서는 Ollama가 안 됨
-
-Render 서버는 사용자의 로컬 PC 또는 Tailscale 사설 IP `100.x.x.x` 대역에 접근하지 못할 수 있습니다. 이 경우 앱을 로컬에서 실행하거나, Render에서도 접근 가능한 공개 LLM API를 사용해야 합니다.
-
-## 주의사항
-
-- 계정·서버·경로 정보가 문서에 포함되어 있으므로 저장소를 **Private**으로 유지하세요.
-- `.env` 파일은 `.gitignore`에 포함되어 커밋되지 않습니다.
+- `.env`는 git에 커밋하지 않습니다.
+- Supabase DB URL이나 비밀번호가 노출되면 Supabase에서 password를 rotate/reset하고 Render Secret Env Var를 새 값으로 교체합니다.
+- 유지보수 문서에는 계정, 서버, 경로 정보가 포함될 수 있으므로 저장소와 Supabase 프로젝트 접근 권한을 제한합니다.
+- Render Dashboard env 값이 Dockerfile 기본값보다 우선합니다. free tier에서 `RAG_STARTUP_INDEX=1`이 남아 있으면 다시 OOM이 날 수 있습니다.

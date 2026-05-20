@@ -1,5 +1,76 @@
 # HK Maintenance RAG Chatbot
 
+## 운영 배포 요약
+
+이 백엔드는 Supabase 프로필 방식으로 여러 DB를 분리해서 운영할 수 있습니다. 같은 코드와 Docker 이미지를 쓰되, 배포 인스턴스마다 다른 `SUPABASE_PROFILE`과 DB URL을 넣습니다.
+
+```env
+DOC_STORAGE=supabase
+SUPABASE_PROFILE=main
+SUPABASE_PROFILE_STRICT=1
+SUPABASE_DB_URL_MAIN=postgresql://...
+```
+
+fresh DB를 보는 인스턴스는 다음처럼 설정합니다.
+
+```env
+DOC_STORAGE=supabase
+SUPABASE_PROFILE=fresh
+SUPABASE_PROFILE_STRICT=1
+SUPABASE_DB_URL_FRESH=postgresql://...
+```
+
+`SUPABASE_PROFILE_STRICT=1`이면 프로필 전용 URL이 없을 때 기존 `SUPABASE_DB_URL`로 fallback하지 않습니다. 운영 DB 오접속 방지를 위해 유지하는 것이 좋습니다.
+
+### Render 서비스 구성
+
+`render.yaml`은 두 개의 Web Service를 정의합니다.
+
+| Service | Profile | Secret env |
+|---|---|---|
+| `hk-maintenance-rag` | `main` | `SUPABASE_DB_URL_MAIN` |
+| `hk-maintenance-rag-fresh` | `fresh` | `SUPABASE_DB_URL_FRESH` |
+
+Render free tier에서는 아래 저메모리 설정을 사용합니다.
+
+```env
+RAG_STARTUP_INDEX=0
+RAG_ENABLE_NGRAM_INDEX=0
+RAG_ENABLE_LEGACY_INDEX=0
+EMBEDDING_BACKEND=none
+```
+
+이 모드는 시작 시 전체 문서 인덱스를 메모리에 만들지 않고, 검색 요청 때 Supabase DB를 직접 조회합니다. main DB처럼 문서가 많은 경우 free tier OOM을 피하기 위한 기본 설정입니다.
+
+더 큰 서버에서는 환경변수로 덮어쓸 수 있습니다.
+
+```env
+RAG_STARTUP_INDEX=1
+RAG_ENABLE_NGRAM_INDEX=1
+RAG_ENABLE_LEGACY_INDEX=1
+EMBEDDING_BACKEND=none
+```
+
+semantic embedding까지 쓰려면 `backend/requirements-embeddings.txt` 설치와 더 큰 메모리가 필요합니다.
+
+### 새 DB 초기화
+
+새 Supabase 프로젝트를 만든 뒤 로컬에서 스키마와 CSV 데이터를 넣습니다.
+
+```powershell
+$env:NEW_SUPABASE_DB_URL="postgresql://..."
+python scripts/bootstrap_fresh_supabase.py "유지보수 접수내역.csv"
+```
+
+이미 빈 스키마가 생성된 DB에 데이터를 다시 넣을 때는:
+
+```powershell
+$env:NEW_SUPABASE_DB_URL="postgresql://..."
+python scripts/bootstrap_fresh_supabase.py "유지보수 접수내역.csv" --allow-non-empty
+```
+
+현재 앱이 어떤 DB 프로필을 보는지는 `/api/meta` 응답의 `supabaseProfile`로 확인합니다.
+
 유지보수 문서를 Supabase에 저장·관리하고 외부 LLM API로 RAG 질문·검색하는 웹 포털입니다.
 
 ## 기술 스택
