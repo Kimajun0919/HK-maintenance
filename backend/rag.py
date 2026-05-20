@@ -25,6 +25,7 @@ from config import (
 from models import Chunk
 from storage import (
     _db_chunk_count,
+    _db_chunk_records_by_ids,
     _db_delete_chunks_for_folder,
     _db_delete_chunks_for_source,
     _db_delete_stale_chunks,
@@ -437,14 +438,40 @@ def _db_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str
 def _db_chunk_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
     if not SUPABASE_ENABLED:
         return [], ""
+    search_cfg = _SETTINGS.get("search", _DEFAULT_SETTINGS["search"])
+    weights = search_cfg.get("weights", _DEFAULT_SETTINGS["search"]["weights"])
+    field_cfg = search_cfg.get("field_boosts", _DEFAULT_SETTINGS["search"]["field_boosts"])
+    candidate_limits = search_cfg.get("candidate_limits", _DEFAULT_SETTINGS["search"].get("candidate_limits", {}))
+    lexical_limit = max(top_k * 8, int(candidate_limits.get("bm25", 50) or 50))
+    vector_limit = max(top_k * 8, int(candidate_limits.get("vector", 50) or 50))
+    query_info = expand_query_terms(query)
+    query_text = " ".join([query_info["normalized_query"]] + [item["term"] for item in query_info["expanded_terms"]]).strip() or query
     try:
-        rows = _db_search_chunk_records(query, max(top_k * 8, 40))
+        rows = _db_search_chunk_records(query_text, lexical_limit)
     except Exception as exc:
         if _RAG_DEBUG:
             print(f"[RAG_DEBUG] db chunk search failed: {exc}")
         rows = []
 
-    results: list[tuple[Chunk, float]] = []
+    store = EmbeddingStore()
+    query_embedding = store.embed_text(query_text)
+    vector_scores_by_id: dict[str, float] = {}
+    vector_error: str | None = None
+    if query_embedding and vector_limit > 0:
+        try:
+            vector_rows = _db_vector_search_chunks(query_embedding, vector_limit)
+            vector_scores_by_id = {
+                str(row.get("chunk_id")): float(row.get("similarity", 0.0))
+                for row in vector_rows
+                if row.get("chunk_id")
+            }
+            existing_ids = {str(row.get("chunk_id") or "") for row in rows}
+            missing_ids = [chunk_id for chunk_id in vector_scores_by_id if chunk_id not in existing_ids]
+            rows.extend(_db_chunk_records_by_ids(missing_ids))
+        except Exception as exc:
+            vector_error = str(exc)
+
+    chunks_by_id: dict[str, tuple[Chunk, float]] = {}
     for row in rows:
         body = _focused_text_for_query(query, str(row.get("body") or ""))
         if not body:
@@ -464,10 +491,57 @@ def _db_chunk_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]
             normalized_body=str(row.get("normalized_body") or normalize_search_text(body)),
             compact_body=str(row.get("compact_body") or compact_search_text(body)),
         )
-        results.append((chunk, float(row.get("score") or 0.0)))
+        chunks_by_id[chunk.chunk_id or f"{chunk.source}:{len(chunks_by_id)}"] = (chunk, float(row.get("score") or 0.0))
 
-    results.sort(key=lambda item: item[1], reverse=True)
-    results = [(chunk, score) for chunk, score in results[:top_k] if score > 0]
+    max_lexical = max((score for _chunk, score in chunks_by_id.values()), default=1.0)
+    if max_lexical <= 0:
+        max_lexical = 1.0
+    original_terms = set(word_tokens(query))
+    expanded_terms = {item["term"] for item in query_info["expanded_terms"]}
+    query_ngrams = char_ngram_tokens(query_text)
+    normalized_query = query_info["normalized_query"]
+    compact_query = compact_search_text(query)
+    scored: list[tuple[Chunk, float]] = []
+    for chunk, lexical_score in chunks_by_id.values():
+        fields = Retriever._normalized_fields(chunk)
+        searchable = Retriever._searchable_text(chunk)
+        lexical_norm = lexical_score / max_lexical
+        ngram_score = jaccard_similarity(query_ngrams, char_ngram_tokens(searchable))
+        embedding_score = vector_scores_by_id.get(chunk.chunk_id or "", 0.0)
+        field_raw = 0.0
+        for field_name, boost in field_cfg.items():
+            field_text = fields.get(field_name, "")
+            if any(term and term in field_text for term in original_terms):
+                field_raw += float(boost)
+            elif any(term and term in field_text for term in expanded_terms):
+                field_raw += float(boost) * 0.6
+        field_boost = min(field_raw, float(search_cfg.get("field_boost_cap", 0.35)))
+        full_text = " ".join(fields.get(k, "") for k in ("title", "filename", "folder", "heading", "body"))
+        full_compact = "".join(fields.get(k, "") for k in ("compact_title", "compact_filename", "compact_folder", "compact_heading", "compact_body"))
+        exact_match_boost = 0.0
+        if normalized_query and normalized_query in full_text:
+            exact_match_boost += float(search_cfg.get("exact_phrase_boost", 0.05))
+        if compact_query and len(compact_query) >= 2 and compact_query in full_compact:
+            exact_match_boost += float(search_cfg.get("compact_exact_phrase_boost", 0.03))
+        exact_match_boost = min(exact_match_boost, 0.08)
+        recency_boost = calculate_recency_boost(chunk.updated_at, float(weights.get("recency_boost_max", 0.05)))
+        final_score = (
+            lexical_norm * float(weights.get("bm25", 0.35))
+            + ngram_score * float(weights.get("ngram", 0.15))
+            + embedding_score * float(weights.get("embedding", 0.35))
+            + field_boost * float(weights.get("field_boost", 0.10))
+            + exact_match_boost * float(weights.get("exact_match_boost", 0.05))
+            + recency_boost
+        )
+        scored.append((chunk, final_score))
+
+    scored.sort(key=lambda item: item[1], reverse=True)
+    results = [(chunk, score) for chunk, score in scored[:top_k] if score > 0]
+    if _RAG_DEBUG:
+        print(
+            "[RAG_DEBUG] db chunk hybrid "
+            f"lexical_candidates={len(rows)} vector_candidates={len(vector_scores_by_id)} vector_error={vector_error or ''}"
+        )
     if results:
         return results, build_context(results)
     return _db_retrieve(query, top_k)

@@ -481,6 +481,51 @@ def _db_search_chunk_records(query: str, limit: int) -> list[dict]:
             ]
 
 
+def _db_chunk_records_by_ids(chunk_ids: list[str]) -> list[dict]:
+    ids = [chunk_id for chunk_id in dict.fromkeys(chunk_ids) if chunk_id]
+    if not ids:
+        return []
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select
+                    c.chunk_id,
+                    c.document_id,
+                    c.source,
+                    c.title,
+                    c.filename,
+                    c.folder,
+                    c.heading,
+                    c.body,
+                    c.normalized_body,
+                    c.compact_body,
+                    c.updated_at
+                from {SUPABASE_CHUNKS_TABLE} c
+                join {SUPABASE_DOCS_TABLE} d on d.source = c.source and d.deleted_at is null
+                where c.chunk_id = any(%s)
+                """,
+                (ids,),
+            )
+            return [
+                {
+                    "chunk_id": row[0],
+                    "document_id": row[1],
+                    "source": row[2],
+                    "title": row[3],
+                    "filename": row[4],
+                    "folder": row[5],
+                    "heading": row[6],
+                    "body": row[7],
+                    "normalized_body": row[8],
+                    "compact_body": row[9],
+                    "updated_at": row[10].isoformat() if row[10] else None,
+                    "score": 0.0,
+                }
+                for row in cur.fetchall()
+            ]
+
+
 def _db_asset_count() -> int:
     with _db_connect() as conn:
         with conn.cursor() as cur:

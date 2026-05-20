@@ -1,9 +1,6 @@
 services:
-  # Render free-tier services use the low-memory database-backed search profile.
-  # On a larger Render plan, override these service env vars to enable startup indexing:
-  # RAG_STARTUP_INDEX=1
-  # RAG_ENABLE_NGRAM_INDEX=1
-  # RAG_ENABLE_LEGACY_INDEX=1
+  # Production search is database-backed: chunks live in Supabase and are not
+  # loaded into web-service memory at startup.
   - type: web
     name: hk-maintenance-rag
     runtime: docker
@@ -27,12 +24,8 @@ services:
       - key: USE_LLM
         value: "0"
       - key: EMBEDDING_BACKEND
-        value: none
+        value: hash
       - key: RAG_STARTUP_INDEX
-        value: "0"
-      - key: RAG_ENABLE_NGRAM_INDEX
-        value: "0"
-      - key: RAG_ENABLE_LEGACY_INDEX
         value: "0"
       - key: SUPABASE_DB_URL_MAIN
         sync: false
@@ -60,12 +53,8 @@ services:
       - key: USE_LLM
         value: "0"
       - key: EMBEDDING_BACKEND
-        value: none
+        value: hash
       - key: RAG_STARTUP_INDEX
-        value: "0"
-      - key: RAG_ENABLE_NGRAM_INDEX
-        value: "0"
-      - key: RAG_ENABLE_LEGACY_INDEX
         value: "0"
       - key: SUPABASE_DB_URL_FRESH
         sync: false
