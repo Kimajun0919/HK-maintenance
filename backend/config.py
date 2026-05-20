@@ -62,6 +62,8 @@ SUPABASE_REQUESTS_TABLE = _profiled_env("SUPABASE_REQUESTS_TABLE", "maintenance_
 SUPABASE_REQUEST_IMPORTS_TABLE = _profiled_env("SUPABASE_REQUEST_IMPORTS_TABLE", f"{SUPABASE_REQUESTS_TABLE}_imports")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
+RAG_ENABLE_NGRAM_INDEX = os.getenv("RAG_ENABLE_NGRAM_INDEX", "1") != "0"
+RAG_ENABLE_LEGACY_INDEX = os.getenv("RAG_ENABLE_LEGACY_INDEX", "1") != "0"
 
 for table_name, env_name in (
     (SUPABASE_DOCS_TABLE, "SUPABASE_DOCS_TABLE"),

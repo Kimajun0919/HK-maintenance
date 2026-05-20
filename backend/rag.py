@@ -10,7 +10,17 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from config import DOCS_DIR, EMBEDDING_DIM, EMBEDDING_MODEL_NAME, MAX_NEW_TOKENS, MODEL_NAME, SUPABASE_ENABLED, USE_LLM
+from config import (
+    DOCS_DIR,
+    EMBEDDING_DIM,
+    EMBEDDING_MODEL_NAME,
+    MAX_NEW_TOKENS,
+    MODEL_NAME,
+    RAG_ENABLE_LEGACY_INDEX,
+    RAG_ENABLE_NGRAM_INDEX,
+    SUPABASE_ENABLED,
+    USE_LLM,
+)
 from models import Chunk
 from storage import (
     _db_delete_stale_chunks,
@@ -540,7 +550,7 @@ class Retriever:
         self.bm25: BM25Okapi | None = BM25Okapi(body_corpus) if chunks else None
 
         self.normalized_fields = [self._normalized_fields(c) for c in chunks]
-        self.ngram_sets = [char_ngram_tokens(self._searchable_text(c)) for c in chunks]
+        self.ngram_sets = [char_ngram_tokens(self._searchable_text(c)) for c in chunks] if RAG_ENABLE_NGRAM_INDEX else []
         self.embedding_store = EmbeddingStore()
         self.embeddings = [[] for _chunk in chunks]
         self.embedding_store.save()
@@ -549,8 +559,8 @@ class Retriever:
         self.last_debug: dict = {}
 
         # Legacy cosine index — kept for fallback if BM25 raises unexpectedly
-        self.vectors = [self._legacy_vector(f"{c.title}\n{c.source}\n{c.text}") for c in chunks]
-        self.norms = [self._legacy_norm(v) for v in self.vectors]
+        self.vectors = [self._legacy_vector(f"{c.title}\n{c.source}\n{c.text}") for c in chunks] if RAG_ENABLE_LEGACY_INDEX else []
+        self.norms = [self._legacy_norm(v) for v in self.vectors] if RAG_ENABLE_LEGACY_INDEX else []
 
     @staticmethod
     def _searchable_text(chunk: Chunk) -> str:
@@ -626,6 +636,8 @@ class Retriever:
 
     def _cosine_fallback(self, query: str, top_k: int) -> list[tuple[Chunk, float]]:
         """Original cosine-based search, preserved as fallback."""
+        if not self.vectors or not self.norms:
+            return []
         expanded_query = self._expand_query(query)
         qv = self._legacy_vector(expanded_query)
         qn = self._legacy_norm(qv)
@@ -697,9 +709,9 @@ class Retriever:
         max_bm25 = max(bm25_scores) if bm25_scores else 1.0
         if max_bm25 <= 0:
             max_bm25 = 1.0
-        ngram_scores = [jaccard_similarity(query_ngrams, grams) for grams in self.ngram_sets]
+        ngram_scores = [jaccard_similarity(query_ngrams, grams) for grams in self.ngram_sets] if self.ngram_sets else [0.0] * len(self.chunks)
         bm25_indices = sorted(range(len(self.chunks)), key=lambda i: bm25_scores[i], reverse=True)[:bm25_limit]
-        ngram_indices = sorted(range(len(self.chunks)), key=lambda i: ngram_scores[i], reverse=True)[:ngram_limit]
+        ngram_indices = sorted(range(len(self.chunks)), key=lambda i: ngram_scores[i], reverse=True)[:ngram_limit] if self.ngram_sets else []
 
         vector_scores_by_id: dict[str, float] = {}
         vector_indices: list[int] = []
