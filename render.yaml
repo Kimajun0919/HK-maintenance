@@ -23,6 +23,8 @@ services:
         value: "0"
       - key: EMBEDDING_BACKEND
         value: none
+      - key: RAG_STARTUP_INDEX
+        value: "0"
       - key: RAG_ENABLE_NGRAM_INDEX
         value: "0"
       - key: RAG_ENABLE_LEGACY_INDEX
@@ -54,6 +56,8 @@ services:
         value: "0"
       - key: EMBEDDING_BACKEND
         value: none
+      - key: RAG_STARTUP_INDEX
+        value: "0"
       - key: RAG_ENABLE_NGRAM_INDEX
         value: "0"
       - key: RAG_ENABLE_LEGACY_INDEX

@@ -66,6 +66,7 @@ from storage import (
     _db_update_doc,
     _db_update_folder_order,
     _db_upsert_asset,
+    _doc_index_records,
     _doc_records,
     _file_asset_records,
     _file_folder_records,
@@ -845,7 +846,7 @@ def _db_asset_record_for_request(source: str, asset_path: str) -> AssetRecord | 
 def docs_index() -> list[dict[str, str]]:
     return [
         {"source": record.source, "title": record.title, "customer": record.customer, "updatedAt": record.updated_at}
-        for record in _doc_records()
+        for record in _doc_index_records()
         if not _is_system_source(record.source)
     ]
 
@@ -853,7 +854,7 @@ def docs_index() -> list[dict[str, str]]:
 def folders_index() -> list[dict[str, str | int]]:
     records = _db_folder_records() if SUPABASE_ENABLED else _file_folder_records()
     doc_counts: Counter[str] = Counter(
-        record.customer for record in _doc_records() if not _is_system_source(record.source)
+        record.customer for record in _doc_index_records() if not _is_system_source(record.source)
     )
     seen = {record.name for record in records}
     for folder in sorted(doc_counts):
@@ -915,8 +916,14 @@ def create_api_app():
         # Keep metadata lightweight: this endpoint is called during initial UI load.
         # Avoid extra Supabase aggregate connections here; slow pooler responses should
         # not block search/chat from becoming usable.
-        document_ids = {chunk.document_id or chunk.source for chunk in rag.chunks}
-        doc_count = len(document_ids)
+        if rag.chunks:
+            document_ids = {chunk.document_id or chunk.source for chunk in rag.chunks}
+            doc_count = len(document_ids)
+        else:
+            try:
+                doc_count = len([record for record in _doc_index_records() if not _is_system_source(record.source)])
+            except Exception:
+                doc_count = 0
         asset_count = 0 if SUPABASE_ENABLED else len(_file_asset_records())
         asset_total_bytes = 0
         return {

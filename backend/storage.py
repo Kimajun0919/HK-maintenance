@@ -213,6 +213,42 @@ def _db_doc_records() -> list[DocRecord]:
             return [DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3], updated_at=row[4].isoformat() if row[4] else None) for row in cur.fetchall()]
 
 
+def _db_doc_index_records() -> list[DocRecord]:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select source, title, customer, updated_at from {SUPABASE_DOCS_TABLE} where deleted_at is null order by source")
+            return [DocRecord(source=row[0], title=row[1], customer=row[2], content="", updated_at=row[3].isoformat() if row[3] else None) for row in cur.fetchall()]
+
+
+def _db_search_doc_records(query: str, limit: int) -> list[DocRecord]:
+    terms = [term.strip() for term in re.split(r"\s+", str(query or "")) if term.strip()]
+    if not terms or limit <= 0:
+        return []
+    clauses = []
+    params: list[str | int] = []
+    for term in terms:
+        clauses.append("(source ilike %s or title ilike %s or customer ilike %s or content ilike %s)")
+        pattern = f"%{term}%"
+        params.extend([pattern, pattern, pattern, pattern])
+    params.append(max(1, min(int(limit), 200)))
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select source, title, customer, content, updated_at
+                from {SUPABASE_DOCS_TABLE}
+                where deleted_at is null and {" and ".join(clauses)}
+                order by updated_at desc nulls last, source
+                limit %s
+                """,
+                params,
+            )
+            return [
+                DocRecord(source=row[0], title=row[1], customer=row[2], content=row[3], updated_at=row[4].isoformat() if row[4] else None)
+                for row in cur.fetchall()
+            ]
+
+
 def _db_asset_count() -> int:
     with _db_connect() as conn:
         with conn.cursor() as cur:
@@ -597,5 +633,9 @@ def _db_trash_records() -> dict:
 
 def _doc_records() -> list[DocRecord]:
     return _db_doc_records() if SUPABASE_ENABLED else _file_doc_records()
+
+
+def _doc_index_records() -> list[DocRecord]:
+    return _db_doc_index_records() if SUPABASE_ENABLED else [DocRecord(r.source, r.title, r.customer, "", r.updated_at) for r in _file_doc_records()]
 
 

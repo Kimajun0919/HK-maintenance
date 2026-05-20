@@ -18,6 +18,7 @@ from config import (
     MODEL_NAME,
     RAG_ENABLE_LEGACY_INDEX,
     RAG_ENABLE_NGRAM_INDEX,
+    RAG_STARTUP_INDEX,
     SUPABASE_ENABLED,
     USE_LLM,
 )
@@ -25,6 +26,7 @@ from models import Chunk
 from storage import (
     _db_delete_stale_chunks,
     _db_existing_chunk_hashes,
+    _db_search_doc_records,
     _db_upsert_search_chunks,
     _db_vector_search_chunks,
     _doc_records,
@@ -355,6 +357,76 @@ def load_chunks() -> list[Chunk]:
         if text:
             chunks.extend(split_markdown(path, text, updated_at=record.updated_at))
     return chunks
+
+
+def _focused_text_for_query(query: str, text: str, max_chars: int = 1800) -> str:
+    normalized = re.sub(r"\s+", " ", clean_text(text)).strip()
+    if len(normalized) <= max_chars:
+        return normalized
+    terms = [term.lower() for term in re.split(r"\s+", query.strip()) if len(term.strip()) >= 2]
+    lower = normalized.lower()
+    positions = [lower.find(term) for term in terms if lower.find(term) >= 0]
+    start = max(0, min(positions) - 250) if positions else 0
+    return normalized[start : start + max_chars].strip()
+
+
+def _db_record_score(query: str, record, body: str) -> float:
+    terms = word_tokens(query)
+    if not terms:
+        return 0.0
+    title = normalize_search_text(record.title)
+    source = normalize_search_text(record.source)
+    customer = normalize_search_text(record.customer)
+    normalized_body = normalize_search_text(body)
+    score = 0.0
+    normalized_query = normalize_search_text(query)
+    if normalized_query and normalized_query in title:
+        score += 20.0
+    for term in terms:
+        if term in title:
+            score += 6.0
+        if term in source:
+            score += 3.0
+        if term in customer:
+            score += 3.0
+        if term in normalized_body:
+            score += 1.0
+    return score
+
+
+def _db_retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
+    if not SUPABASE_ENABLED:
+        return [], ""
+    try:
+        records = _db_search_doc_records(query, max(top_k * 8, 40))
+    except Exception as exc:
+        if _RAG_DEBUG:
+            print(f"[RAG_DEBUG] db fallback search failed: {exc}")
+        return [], ""
+    results: list[tuple[Chunk, float]] = []
+    for record in records:
+        body = _focused_text_for_query(query, record.content)
+        if not body:
+            continue
+        document_id = _stable_document_id(record.source)
+        folder = record.customer or (record.source.rsplit("/", 1)[0] if "/" in record.source else "")
+        chunk = Chunk(
+            text=body,
+            source=record.source,
+            title=record.title,
+            document_id=document_id,
+            chunk_id=f"{document_id}_db_0001",
+            heading=record.title,
+            filename=record.source.rsplit("/", 1)[-1],
+            folder=folder,
+            updated_at=record.updated_at,
+            normalized_body=normalize_search_text(body),
+            compact_body=compact_search_text(body),
+        )
+        results.append((chunk, _db_record_score(query, record, body)))
+    results.sort(key=lambda item: item[1], reverse=True)
+    results = [(chunk, score) for chunk, score in results[:top_k] if score > 0]
+    return results, build_context(results) if results else ""
 
 
 # ──────────────────────────────────────────────
@@ -1567,7 +1639,7 @@ def reset_settings() -> dict:
 _RAG_INIT_ERROR = ""
 try:
     _init_supabase_storage()
-    chunks = load_chunks()
+    chunks = load_chunks() if RAG_STARTUP_INDEX else []
 except Exception as exc:
     _RAG_INIT_ERROR = str(exc)
     if _RAG_DEBUG:
@@ -1579,6 +1651,10 @@ load_settings()  # apply settings.json after retriever is ready
 
 def refresh_index(force: bool = False) -> dict | None:
     global chunks, retriever
+    if not RAG_STARTUP_INDEX:
+        chunks = []
+        retriever = Retriever([])
+        return {"ok": True, "chunks": 0, "reason": "startup index disabled; database search fallback active", "force": force}
     chunks = load_chunks()
     retriever = Retriever(chunks)
     _apply_settings_to_runtime()  # re-apply BM25 params to the new retriever
@@ -1665,6 +1741,8 @@ def retrieve(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]], str]:
     query = query.strip()
     if not query:
         return [], ""
+    if not chunks and not RAG_STARTUP_INDEX:
+        return _db_retrieve(query, top_k)
 
     intent = detect_intent(query)
     candidate_k = INTENT_CONFIG[intent]["candidate_k"]
@@ -1682,6 +1760,27 @@ def search_documents(query: str, top_k: int = 5, debug: bool = False, mode: str 
     query = query.strip()
     if not query:
         return {"results": [], "debug": {}} if debug else []
+    if not chunks and not RAG_STARTUP_INDEX:
+        chunk_results, _context = _db_retrieve(query, top_k)
+        results = [
+            {
+                "document_id": chunk.document_id,
+                "title": chunk.title,
+                "filename": chunk.filename or chunk.source.rsplit("/", 1)[-1],
+                "folder": chunk.folder or "",
+                "source": chunk.source,
+                "matched_heading": chunk.heading or chunk.title,
+                "matched_text": re.sub(r"\s+", " ", chunk.text).strip()[:700],
+                "snippet": re.sub(r"\s+", " ", chunk.text).strip()[:700],
+                "score": round(score, 4),
+                "score_detail": {"backend": "database"},
+                "related_chunks": [],
+            }
+            for chunk, score in chunk_results
+        ]
+        if not debug:
+            return results
+        return {"results": results, "debug": {"backend": "database", "returned_document_count": len(results)}}
     candidate_top_k = max(top_k * 4, top_k)
     intent = detect_intent(query)
     candidate_k = INTENT_CONFIG[intent]["candidate_k"]
@@ -1745,6 +1844,8 @@ def retrieve_for_llm(query: str, top_k: int) -> tuple[list[tuple[Chunk, float]],
     query = query.strip()
     if not query:
         return [], ""
+    if not chunks and not RAG_STARTUP_INDEX:
+        return _db_retrieve(query, top_k)
 
     intent = detect_intent(query)
     cfg = INTENT_CONFIG[intent]
