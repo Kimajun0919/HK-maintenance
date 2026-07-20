@@ -6,6 +6,7 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/*.py .
+COPY backend/domain_terms.json .
 COPY frontend/ frontend/
 COPY v2/ v2/
 

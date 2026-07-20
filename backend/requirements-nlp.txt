@@ -1,0 +1,14 @@
+# 오프라인 전용 의존성 — 런타임(requirements.txt)에 넣지 말 것.
+#
+# kiwipiepy 는 약 500MB 힙을 사용합니다 (실측 RssAnon 509MB, 모델 디스크 104MB).
+# mmap 이 아닌 순수 힙이라 회수되지 않으므로 Render 512Mi 플랜에서 런타임
+# 적재가 불가능합니다. 형태소 분석은 scripts/mine_terms.py 에서 1회 수행해
+# backend/domain_terms.json 을 만들고, 런타임은 그 JSON 만 읽습니다.
+#
+# 사용:
+#   pip install -r backend/requirements-nlp.txt
+#   python scripts/mine_terms.py --supabase -o backend/domain_terms.json
+#
+# 온프레미스 전환(Phase 2) 후에는 메모리 제약이 사라지므로 런타임 적재로
+# 전환해 FTS 표제어 추출과 질의 정규화에 쓰는 것이 맞습니다.
+kiwipiepy>=0.20.0

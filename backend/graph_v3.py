@@ -94,6 +94,37 @@ ISSUE_TERMS: dict[str, list[str]] = {
     "기능개선": ["개선", "리뉴얼", "기능추가"],
 }
 
+# scripts/mine_terms.py 가 만든 검수 결과. 있으면 SYSTEM_TERMS 를 보강한다.
+# 런타임은 이 JSON 만 읽으므로 kiwipiepy 의존성이 없다 — 형태소 분석은
+# 오프라인 스크립트에서 1회 수행된다. (Kiwi 는 약 500MB 힙을 쓰므로
+# Render 512Mi 에서 런타임 적재가 불가능하다. 실측 RssAnon 509MB.)
+DOMAIN_TERMS_PATH = os.getenv(
+    "V3_DOMAIN_TERMS",
+    str(__import__("pathlib").Path(__file__).with_name("domain_terms.json")),
+)
+
+
+def _load_domain_terms() -> dict[str, list[str]]:
+    import json
+    from pathlib import Path
+    path = Path(DOMAIN_TERMS_PATH)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out: dict[str, list[str]] = {}
+    for entry in data.get("approved") or []:
+        if isinstance(entry, str):
+            out.setdefault(entry, []).append(entry.lower())
+        elif isinstance(entry, dict) and entry.get("term"):
+            canon = entry["term"]
+            variants = [str(v).lower() for v in entry.get("variants") or []]
+            out[canon] = sorted({canon.lower(), *variants})
+    return out
+
+
 CUSTOMER_ALIASES: dict[str, list[str]] = {
     "시도지사협의회": ["시도지사", "대한시도지사협회"],
     "KB손보CNS": ["kb손보", "kb손해보험", "손보cns"],
@@ -102,6 +133,12 @@ CUSTOMER_ALIASES: dict[str, list[str]] = {
     "코웨이": ["coway"],
     "대한항공": ["korean air", "kal"],
 }
+
+_APPROVED_TERMS = _load_domain_terms()
+if _APPROVED_TERMS:
+    # 검수 통과 용어는 System 사전에 합류. 기존 항목을 덮어쓰지 않는다.
+    for _canon, _variants in _APPROVED_TERMS.items():
+        SYSTEM_TERMS.setdefault(_canon, _variants)
 
 NODE_TYPES = ("Customer", "Document", "Chunk", "System", "IssueType", "Ticket", "Person")
 
