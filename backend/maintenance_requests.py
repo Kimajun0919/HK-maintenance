@@ -613,6 +613,48 @@ def _make_snippet(text: str, query: str, max_chars: int = 260) -> str:
     return ("... " if start > 0 else "") + snippet + (" ..." if start + max_chars < len(compact) else "")
 
 
+def request_graph_rows(limit: int = 4000) -> list[dict]:
+    """v3 그래프용 티켓 레코드.
+
+    마크다운 사본(유지보수_접수내역/접수_N.md)이 아니라 정규화된 테이블을
+    직접 읽는다. 마크다운 사본은 폴더=고객사 규칙 때문에 '유지보수_접수내역'
+    이라는 가짜 고객사 밑에 티켓 수백 건이 문서로 매달리는 왜곡을 만든다.
+    실제 고객사는 user_id, 담당자는 manager_id / worker_id 에 있다.
+    """
+    if not SUPABASE_ENABLED:
+        return []
+    limit = max(1, min(int(limit), 20000))
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select idx, user_id, manager_id, worker_id, type_id, status_id,
+                       title, request_date, completed_date, is_urgent, source
+                from {SUPABASE_REQUESTS_TABLE}
+                order by request_date desc nulls last, idx desc
+                limit %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+    return [
+        {
+            "idx": r[0],
+            "customer": (r[1] or "").strip(),
+            "manager_id": r[2],
+            "worker_id": r[3],
+            "type_id": r[4],
+            "status_id": r[5],
+            "title": (r[6] or "").strip(),
+            "request_date": r[7].isoformat() if r[7] else None,
+            "completed_date": r[8].isoformat() if r[8] else None,
+            "is_urgent": bool(r[9]),
+            "source": r[10],
+        }
+        for r in rows
+    ]
+
+
 def search_maintenance_requests(query: str, limit: int = 10) -> list[dict]:
     query = str(query or "").strip()
     limit = max(1, min(int(limit), 50))

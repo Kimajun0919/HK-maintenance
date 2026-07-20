@@ -9,6 +9,8 @@ const NODE_COLOR = {
   Customer: "var(--v3-node-customer)",
   Document: "var(--v3-node-document)",
   Chunk: "var(--v3-node-chunk)",
+  Ticket: "var(--v3-node-ticket)",
+  Person: "var(--v3-node-person)",
   System: "var(--v3-node-system)",
   IssueType: "var(--v3-node-issue)",
 };
@@ -17,6 +19,8 @@ const NODE_LABEL = {
   Customer: "고객사",
   Document: "문서",
   Chunk: "청크",
+  Ticket: "접수건",
+  Person: "담당자",
   System: "시스템",
   IssueType: "이슈유형",
 };
@@ -25,6 +29,8 @@ function radius(n) {
   if (n.type === "Customer") return 11;
   if (n.type === "Document") return 6.5;
   if (n.type === "Chunk") return 3.5;
+  if (n.type === "Ticket") return 4.5;
+  if (n.type === "Person") return 8;
   return 5 + Math.sqrt(n.degree || 1) * 0.62;
 }
 
