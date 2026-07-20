@@ -1,0 +1,935 @@
+{
+  "_comment": "scripts/mine_terms.py 산출물. 자동 확정본이 아니라 검수용 후보 목록입니다.",
+  "mode": "kiwi",
+  "corpusDocs": 128,
+  "corpusCustomers": 59,
+  "uniqueTerms": 2523,
+  "candidates": [
+    {
+      "term": "계정",
+      "docFreq": 41,
+      "customers": 28,
+      "share": 0.3203,
+      "score": 18.61
+    },
+    {
+      "term": "도메인",
+      "docFreq": 36,
+      "customers": 24,
+      "share": 0.2812,
+      "score": 18.51
+    },
+    {
+      "term": "메일",
+      "docFreq": 34,
+      "customers": 24,
+      "share": 0.2656,
+      "score": 17.86
+    },
+    {
+      "term": "서버도메인",
+      "docFreq": 33,
+      "customers": 23,
+      "share": 0.2578,
+      "score": 17.81
+    },
+    {
+      "term": "접속",
+      "docFreq": 38,
+      "customers": 30,
+      "share": 0.2969,
+      "score": 17.21
+    },
+    {
+      "term": "web",
+      "docFreq": 28,
+      "customers": 19,
+      "share": 0.2188,
+      "score": 16.94
+    },
+    {
+      "term": "home",
+      "docFreq": 32,
+      "customers": 25,
+      "share": 0.25,
+      "score": 16.88
+    },
+    {
+      "term": "vpn",
+      "docFreq": 38,
+      "customers": 33,
+      "share": 0.2969,
+      "score": 16.26
+    },
+    {
+      "term": "pc",
+      "docFreq": 40,
+      "customers": 35,
+      "share": 0.3125,
+      "score": 16.08
+    },
+    {
+      "term": "vip",
+      "docFreq": 25,
+      "customers": 17,
+      "share": 0.1953,
+      "score": 16.06
+    },
+    {
+      "term": "메인",
+      "docFreq": 25,
+      "customers": 18,
+      "share": 0.1953,
+      "score": 15.82
+    },
+    {
+      "term": "장기",
+      "docFreq": 24,
+      "customers": 16,
+      "share": 0.1875,
+      "score": 15.8
+    },
+    {
+      "term": "원격",
+      "docFreq": 36,
+      "customers": 33,
+      "share": 0.2812,
+      "score": 15.74
+    },
+    {
+      "term": "이클립스",
+      "docFreq": 36,
+      "customers": 33,
+      "share": 0.2812,
+      "score": 15.74
+    },
+    {
+      "term": "id",
+      "docFreq": 26,
+      "customers": 21,
+      "share": 0.2031,
+      "score": 15.56
+    },
+    {
+      "term": "pw",
+      "docFreq": 26,
+      "customers": 21,
+      "share": 0.2031,
+      "score": 15.56
+    },
+    {
+      "term": "mo",
+      "docFreq": 33,
+      "customers": 31,
+      "share": 0.2578,
+      "score": 15.48
+    },
+    {
+      "term": "실서버",
+      "docFreq": 36,
+      "customers": 34,
+      "share": 0.2812,
+      "score": 15.44
+    },
+    {
+      "term": "inf",
+      "docFreq": 23,
+      "customers": 16,
+      "share": 0.1797,
+      "score": 15.29
+    },
+    {
+      "term": "관리자계정",
+      "docFreq": 23,
+      "customers": 16,
+      "share": 0.1797,
+      "score": 15.29
+    },
+    {
+      "term": "비고",
+      "docFreq": 33,
+      "customers": 33,
+      "share": 0.2578,
+      "score": 14.9
+    },
+    {
+      "term": "유지보수정보",
+      "docFreq": 32,
+      "customers": 32,
+      "share": 0.25,
+      "score": 14.89
+    },
+    {
+      "term": "접수",
+      "docFreq": 35,
+      "customers": 35,
+      "share": 0.2734,
+      "score": 14.87
+    },
+    {
+      "term": "업체",
+      "docFreq": 31,
+      "customers": 31,
+      "share": 0.2422,
+      "score": 14.85
+    },
+    {
+      "term": "hknas",
+      "docFreq": 21,
+      "customers": 13,
+      "share": 0.1641,
+      "score": 14.85
+    },
+    {
+      "term": "업로드",
+      "docFreq": 22,
+      "customers": 18,
+      "share": 0.1719,
+      "score": 14.33
+    },
+    {
+      "term": "게시판",
+      "docFreq": 19,
+      "customers": 10,
+      "share": 0.1484,
+      "score": 14.26
+    },
+    {
+      "term": "전달",
+      "docFreq": 21,
+      "customers": 16,
+      "share": 0.1641,
+      "score": 14.22
+    },
+    {
+      "term": "목록",
+      "docFreq": 25,
+      "customers": 25,
+      "share": 0.1953,
+      "score": 14.15
+    },
+    {
+      "term": "인트라넷",
+      "docFreq": 25,
+      "customers": 25,
+      "share": 0.1953,
+      "score": 14.15
+    },
+    {
+      "term": "ftp",
+      "docFreq": 21,
+      "customers": 17,
+      "share": 0.1641,
+      "score": 14.01
+    },
+    {
+      "term": "생성",
+      "docFreq": 21,
+      "customers": 17,
+      "share": 0.1641,
+      "score": 14.01
+    },
+    {
+      "term": "관리",
+      "docFreq": 21,
+      "customers": 17,
+      "share": 0.1641,
+      "score": 14.01
+    },
+    {
+      "term": "연결",
+      "docFreq": 20,
+      "customers": 16,
+      "share": 0.1562,
+      "score": 13.67
+    },
+    {
+      "term": "관리자페이지",
+      "docFreq": 21,
+      "customers": 19,
+      "share": 0.1641,
+      "score": 13.6
+    },
+    {
+      "term": "jsp",
+      "docFreq": 19,
+      "customers": 14,
+      "share": 0.1484,
+      "score": 13.49
+    },
+    {
+      "term": "발송",
+      "docFreq": 20,
+      "customers": 17,
+      "share": 0.1562,
+      "score": 13.47
+    },
+    {
+      "term": "주소",
+      "docFreq": 19,
+      "customers": 16,
+      "share": 0.1484,
+      "score": 13.11
+    },
+    {
+      "term": "자료",
+      "docFreq": 18,
+      "customers": 13,
+      "share": 0.1406,
+      "score": 13.08
+    },
+    {
+      "term": "포함",
+      "docFreq": 20,
+      "customers": 19,
+      "share": 0.1562,
+      "score": 13.07
+    },
+    {
+      "term": "파크랜드",
+      "docFreq": 15,
+      "customers": 2,
+      "share": 0.1172,
+      "score": 12.93
+    },
+    {
+      "term": "반영",
+      "docFreq": 19,
+      "customers": 17,
+      "share": 0.1484,
+      "score": 12.92
+    },
+    {
+      "term": "image",
+      "docFreq": 17,
+      "customers": 11,
+      "share": 0.1328,
+      "score": 12.82
+    },
+    {
+      "term": "로그인",
+      "docFreq": 19,
+      "customers": 18,
+      "share": 0.1484,
+      "score": 12.72
+    },
+    {
+      "term": "사이트",
+      "docFreq": 18,
+      "customers": 15,
+      "share": 0.1406,
+      "score": 12.72
+    },
+    {
+      "term": "소스",
+      "docFreq": 17,
+      "customers": 12,
+      "share": 0.1328,
+      "score": 12.64
+    },
+    {
+      "term": "자리",
+      "docFreq": 19,
+      "customers": 19,
+      "share": 0.1484,
+      "score": 12.53
+    },
+    {
+      "term": "적용",
+      "docFreq": 19,
+      "customers": 19,
+      "share": 0.1484,
+      "score": 12.53
+    },
+    {
+      "term": "링크",
+      "docFreq": 17,
+      "customers": 13,
+      "share": 0.1328,
+      "score": 12.47
+    },
+    {
+      "term": "개발",
+      "docFreq": 18,
+      "customers": 17,
+      "share": 0.1406,
+      "score": 12.35
+    },
+    {
+      "term": "나스",
+      "docFreq": 17,
+      "customers": 14,
+      "share": 0.1328,
+      "score": 12.29
+    },
+    {
+      "term": "내역",
+      "docFreq": 17,
+      "customers": 14,
+      "share": 0.1328,
+      "score": 12.29
+    },
+    {
+      "term": "front",
+      "docFreq": 17,
+      "customers": 15,
+      "share": 0.1328,
+      "score": 12.12
+    },
+    {
+      "term": "번호",
+      "docFreq": 16,
+      "customers": 12,
+      "share": 0.125,
+      "score": 12.01
+    },
+    {
+      "term": "복사",
+      "docFreq": 15,
+      "customers": 9,
+      "share": 0.1172,
+      "score": 11.83
+    },
+    {
+      "term": "분류",
+      "docFreq": 14,
+      "customers": 5,
+      "share": 0.1094,
+      "score": 11.73
+    },
+    {
+      "term": "클릭",
+      "docFreq": 16,
+      "customers": 14,
+      "share": 0.125,
+      "score": 11.67
+    },
+    {
+      "term": "위치",
+      "docFreq": 16,
+      "customers": 14,
+      "share": 0.125,
+      "score": 11.67
+    },
+    {
+      "term": "url",
+      "docFreq": 16,
+      "customers": 15,
+      "share": 0.125,
+      "score": 11.51
+    },
+    {
+      "term": "폴더",
+      "docFreq": 16,
+      "customers": 15,
+      "share": 0.125,
+      "score": 11.51
+    },
+    {
+      "term": "업데이트",
+      "docFreq": 15,
+      "customers": 13,
+      "share": 0.1172,
+      "score": 11.2
+    },
+    {
+      "term": "ip",
+      "docFreq": 15,
+      "customers": 14,
+      "share": 0.1172,
+      "score": 11.04
+    },
+    {
+      "term": "디비",
+      "docFreq": 13,
+      "customers": 5,
+      "share": 0.1016,
+      "score": 10.99
+    },
+    {
+      "term": "images",
+      "docFreq": 14,
+      "customers": 10,
+      "share": 0.1094,
+      "score": 10.99
+    },
+    {
+      "term": "삭제",
+      "docFreq": 14,
+      "customers": 11,
+      "share": 0.1094,
+      "score": 10.84
+    },
+    {
+      "term": "기입",
+      "docFreq": 13,
+      "customers": 9,
+      "share": 0.1016,
+      "score": 10.43
+    },
+    {
+      "term": "코드",
+      "docFreq": 13,
+      "customers": 9,
+      "share": 0.1016,
+      "score": 10.43
+    },
+    {
+      "term": "메뉴",
+      "docFreq": 13,
+      "customers": 10,
+      "share": 0.1016,
+      "score": 10.29
+    },
+    {
+      "term": "기타",
+      "docFreq": 12,
+      "customers": 5,
+      "share": 0.0938,
+      "score": 10.23
+    },
+    {
+      "term": "frnt",
+      "docFreq": 13,
+      "customers": 11,
+      "share": 0.1016,
+      "score": 10.16
+    },
+    {
+      "term": "main",
+      "docFreq": 13,
+      "customers": 12,
+      "share": 0.1016,
+      "score": 10.02
+    },
+    {
+      "term": "동일",
+      "docFreq": 13,
+      "customers": 12,
+      "share": 0.1016,
+      "score": 10.02
+    },
+    {
+      "term": "테스트",
+      "docFreq": 13,
+      "customers": 12,
+      "share": 0.1016,
+      "score": 10.02
+    },
+    {
+      "term": "안과의사회",
+      "docFreq": 11,
+      "customers": 1,
+      "share": 0.0859,
+      "score": 9.94
+    },
+    {
+      "term": "안과",
+      "docFreq": 11,
+      "customers": 1,
+      "share": 0.0859,
+      "score": 9.94
+    },
+    {
+      "term": "의사회",
+      "docFreq": 11,
+      "customers": 1,
+      "share": 0.0859,
+      "score": 9.94
+    },
+    {
+      "term": "날짜",
+      "docFreq": 12,
+      "customers": 8,
+      "share": 0.0938,
+      "score": 9.84
+    },
+    {
+      "term": "설정",
+      "docFreq": 12,
+      "customers": 8,
+      "share": 0.0938,
+      "score": 9.84
+    },
+    {
+      "term": "회원",
+      "docFreq": 12,
+      "customers": 9,
+      "share": 0.0938,
+      "score": 9.71
+    },
+    {
+      "term": "사용자",
+      "docFreq": 12,
+      "customers": 9,
+      "share": 0.0938,
+      "score": 9.71
+    },
+    {
+      "term": "파일질라",
+      "docFreq": 12,
+      "customers": 10,
+      "share": 0.0938,
+      "score": 9.58
+    },
+    {
+      "term": "입력",
+      "docFreq": 12,
+      "customers": 11,
+      "share": 0.0938,
+      "score": 9.46
+    },
+    {
+      "term": "전체",
+      "docFreq": 12,
+      "customers": 11,
+      "share": 0.0938,
+      "score": 9.46
+    },
+    {
+      "term": "한국",
+      "docFreq": 11,
+      "customers": 7,
+      "share": 0.0859,
+      "score": 9.22
+    },
+    {
+      "term": "팝업",
+      "docFreq": 11,
+      "customers": 9,
+      "share": 0.0859,
+      "score": 8.98
+    },
+    {
+      "term": "불가",
+      "docFreq": 11,
+      "customers": 10,
+      "share": 0.0859,
+      "score": 8.86
+    },
+    {
+      "term": "하단",
+      "docFreq": 11,
+      "customers": 10,
+      "share": 0.0859,
+      "score": 8.86
+    },
+    {
+      "term": "학술",
+      "docFreq": 10,
+      "customers": 4,
+      "share": 0.0781,
+      "score": 8.78
+    },
+    {
+      "term": "체크",
+      "docFreq": 11,
+      "customers": 11,
+      "share": 0.0859,
+      "score": 8.74
+    },
+    {
+      "term": "main.jsp",
+      "docFreq": 11,
+      "customers": 11,
+      "share": 0.0859,
+      "score": 8.74
+    },
+    {
+      "term": "다운로드",
+      "docFreq": 11,
+      "customers": 11,
+      "share": 0.0859,
+      "score": 8.74
+    },
+    {
+      "term": "문찬송",
+      "docFreq": 11,
+      "customers": 11,
+      "share": 0.0859,
+      "score": 8.74
+    },
+    {
+      "term": "root",
+      "docFreq": 10,
+      "customers": 7,
+      "share": 0.0781,
+      "score": 8.45
+    },
+    {
+      "term": "index.php",
+      "docFreq": 10,
+      "customers": 8,
+      "share": 0.0781,
+      "score": 8.34
+    },
+    {
+      "term": "센터",
+      "docFreq": 10,
+      "customers": 8,
+      "share": 0.0781,
+      "score": 8.34
+    },
+    {
+      "term": "배너",
+      "docFreq": 10,
+      "customers": 8,
+      "share": 0.0781,
+      "score": 8.34
+    },
+    {
+      "term": "참조",
+      "docFreq": 10,
+      "customers": 8,
+      "share": 0.0781,
+      "score": 8.34
+    },
+    {
+      "term": "운영",
+      "docFreq": 10,
+      "customers": 8,
+      "share": 0.0781,
+      "score": 8.34
+    },
+    {
+      "term": "nas",
+      "docFreq": 10,
+      "customers": 10,
+      "share": 0.0781,
+      "score": 8.12
+    },
+    {
+      "term": "pdf",
+      "docFreq": 10,
+      "customers": 10,
+      "share": 0.0781,
+      "score": 8.12
+    },
+    {
+      "term": "주요",
+      "docFreq": 10,
+      "customers": 10,
+      "share": 0.0781,
+      "score": 8.12
+    },
+    {
+      "term": "학술대회",
+      "docFreq": 9,
+      "customers": 3,
+      "share": 0.0703,
+      "score": 8.07
+    },
+    {
+      "term": "대회",
+      "docFreq": 9,
+      "customers": 3,
+      "share": 0.0703,
+      "score": 8.07
+    },
+    {
+      "term": "학회",
+      "docFreq": 9,
+      "customers": 4,
+      "share": 0.0703,
+      "score": 7.97
+    },
+    {
+      "term": "카테고리",
+      "docFreq": 9,
+      "customers": 4,
+      "share": 0.0703,
+      "score": 7.97
+    },
+    {
+      "term": "최신",
+      "docFreq": 9,
+      "customers": 6,
+      "share": 0.0703,
+      "score": 7.77
+    },
+    {
+      "term": "로컬",
+      "docFreq": 9,
+      "customers": 7,
+      "share": 0.0703,
+      "score": 7.67
+    },
+    {
+      "term": "서브",
+      "docFreq": 9,
+      "customers": 7,
+      "share": 0.0703,
+      "score": 7.67
+    },
+    {
+      "term": "board",
+      "docFreq": 9,
+      "customers": 7,
+      "share": 0.0703,
+      "score": 7.67
+    },
+    {
+      "term": "상단",
+      "docFreq": 9,
+      "customers": 7,
+      "share": 0.0703,
+      "score": 7.67
+    },
+    {
+      "term": "헤더",
+      "docFreq": 9,
+      "customers": 7,
+      "share": 0.0703,
+      "score": 7.67
+    },
+    {
+      "term": "css",
+      "docFreq": 9,
+      "customers": 7,
+      "share": 0.0703,
+      "score": 7.67
+    },
+    {
+      "term": "구글",
+      "docFreq": 9,
+      "customers": 8,
+      "share": 0.0703,
+      "score": 7.57
+    },
+    {
+      "term": "소통",
+      "docFreq": 9,
+      "customers": 8,
+      "share": 0.0703,
+      "score": 7.57
+    },
+    {
+      "term": "백업",
+      "docFreq": 9,
+      "customers": 8,
+      "share": 0.0703,
+      "score": 7.57
+    },
+    {
+      "term": "검색",
+      "docFreq": 9,
+      "customers": 8,
+      "share": 0.0703,
+      "score": 7.57
+    },
+    {
+      "term": "유지보수매뉴얼",
+      "docFreq": 9,
+      "customers": 9,
+      "share": 0.0703,
+      "score": 7.47
+    },
+    {
+      "term": "개인",
+      "docFreq": 9,
+      "customers": 9,
+      "share": 0.0703,
+      "score": 7.47
+    },
+    {
+      "term": "오류",
+      "docFreq": 9,
+      "customers": 9,
+      "share": 0.0703,
+      "score": 7.47
+    },
+    {
+      "term": "홈페이지",
+      "docFreq": 9,
+      "customers": 9,
+      "share": 0.0703,
+      "score": 7.47
+    }
+  ],
+  "approved": [
+    {
+      "term": "VPN",
+      "variants": [
+        "vpn",
+        "브이피엔",
+        "가상사설망"
+      ]
+    },
+    {
+      "term": "실서버",
+      "variants": [
+        "실서버",
+        "운영서버",
+        "라이브서버",
+        "production"
+      ]
+    },
+    {
+      "term": "원격접속",
+      "variants": [
+        "원격접속",
+        "원격 접속",
+        "rdp",
+        "teamviewer",
+        "팀뷰어",
+        "애니데스크",
+        "anydesk"
+      ]
+    },
+    {
+      "term": "이클립스",
+      "variants": [
+        "이클립스",
+        "eclipse"
+      ]
+    },
+    {
+      "term": "인트라넷",
+      "variants": [
+        "인트라넷",
+        "intranet"
+      ]
+    },
+    {
+      "term": "NAS",
+      "variants": [
+        "hknas",
+        "nas",
+        "네트워크스토리지"
+      ]
+    },
+    {
+      "term": "관리자계정",
+      "variants": [
+        "관리자계정",
+        "관리자 계정",
+        "admin 계정",
+        "루트계정"
+      ]
+    },
+    {
+      "term": "서버도메인",
+      "variants": [
+        "서버도메인",
+        "서버 도메인"
+      ]
+    },
+    {
+      "term": "계정",
+      "variants": [
+        "계정",
+        "account",
+        "아이디비밀번호"
+      ]
+    },
+    {
+      "term": "업로드",
+      "variants": [
+        "업로드",
+        "upload",
+        "파일첨부"
+      ]
+    }
+  ],
+  "_review": "approved 는 Claude 가 후보에서 골라 제안한 초안입니다. 유지보수팀 검수 필요."
+}

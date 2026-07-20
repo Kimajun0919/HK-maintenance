@@ -945,9 +945,17 @@ def create_api_app():
     def v3_home_head():
         return Response(status_code=200)
 
+    def _v3_tickets():
+        if not SUPABASE_ENABLED:
+            return []
+        from maintenance_requests import request_graph_rows
+        return request_graph_rows()
+
     def _v3_graph(refresh: bool = False):
         import graph_v3
-        return graph_v3, graph_v3.get_graph(_doc_records, refresh=refresh)
+        graph = graph_v3.get_graph(_doc_records, refresh=refresh,
+                                   ticket_loader=_v3_tickets)
+        return graph_v3, graph
 
     @api_app.get("/api/v3/stats")
     def api_v3_stats(refresh: int = Query(0, ge=0, le=1)):
@@ -960,10 +968,24 @@ def create_api_app():
         except Exception as exc:
             return _json_response({"error": str(exc)}, status_code=500)
 
+    @api_app.get("/api/v3/terms")
+    def api_v3_terms(top: int = Query(80, ge=10, le=300), minDocs: int = Query(3, ge=1, le=50)):
+        try:
+            gv3, graph = _v3_graph()
+            return {
+                "candidates": gv3.mine_terms(graph, top=top, min_docs=minDocs),
+                "dictionarySize": len(gv3.SYSTEM_TERMS) + len(gv3.ISSUE_TERMS),
+                "corpusDocs": graph.term_doc_total,
+                "uniqueTerms": len(graph.term_doc_freq),
+            }
+        except Exception as exc:
+            return _json_response({"error": str(exc)}, status_code=500)
+
     @api_app.get("/api/v3/graph")
     def api_v3_graph(
         customers: str = Query("", min_length=0),
         maxChunksPerDoc: int = Query(4, ge=0, le=20),
+        maxTicketsPerCustomer: int = Query(8, ge=0, le=40),
         includeChunks: int = Query(1, ge=0, le=1),
         refresh: int = Query(0, ge=0, le=1),
     ):
@@ -979,6 +1001,7 @@ def create_api_app():
                 graph,
                 customers=wanted,
                 max_chunks_per_doc=maxChunksPerDoc if include else 0,
+                max_tickets_per_customer=maxTicketsPerCustomer if wanted else 0,
                 include_chunks=include,
             )
             payload["customers"] = wanted or []

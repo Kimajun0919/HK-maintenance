@@ -16,6 +16,8 @@
   --v3-node-chunk: #a3a099;
   --v3-node-system: #d55181;
   --v3-node-issue: #c98500;
+  --v3-node-ticket: #7f77dd;
+  --v3-node-person: #1d9e75;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -36,6 +38,8 @@
     --v3-node-chunk: #6f6d67;
     --v3-node-system: #e0779f;
     --v3-node-issue: #dda63f;
+    --v3-node-ticket: #9c95e8;
+    --v3-node-person: #3fb98f;
   }
 }
 

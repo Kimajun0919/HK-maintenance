@@ -94,6 +94,37 @@ ISSUE_TERMS: dict[str, list[str]] = {
     "기능개선": ["개선", "리뉴얼", "기능추가"],
 }
 
+# scripts/mine_terms.py 가 만든 검수 결과. 있으면 SYSTEM_TERMS 를 보강한다.
+# 런타임은 이 JSON 만 읽으므로 kiwipiepy 의존성이 없다 — 형태소 분석은
+# 오프라인 스크립트에서 1회 수행된다. (Kiwi 는 약 500MB 힙을 쓰므로
+# Render 512Mi 에서 런타임 적재가 불가능하다. 실측 RssAnon 509MB.)
+DOMAIN_TERMS_PATH = os.getenv(
+    "V3_DOMAIN_TERMS",
+    str(__import__("pathlib").Path(__file__).with_name("domain_terms.json")),
+)
+
+
+def _load_domain_terms() -> dict[str, list[str]]:
+    import json
+    from pathlib import Path
+    path = Path(DOMAIN_TERMS_PATH)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out: dict[str, list[str]] = {}
+    for entry in data.get("approved") or []:
+        if isinstance(entry, str):
+            out.setdefault(entry, []).append(entry.lower())
+        elif isinstance(entry, dict) and entry.get("term"):
+            canon = entry["term"]
+            variants = [str(v).lower() for v in entry.get("variants") or []]
+            out[canon] = sorted({canon.lower(), *variants})
+    return out
+
+
 CUSTOMER_ALIASES: dict[str, list[str]] = {
     "시도지사협의회": ["시도지사", "대한시도지사협회"],
     "KB손보CNS": ["kb손보", "kb손해보험", "손보cns"],
@@ -103,12 +134,25 @@ CUSTOMER_ALIASES: dict[str, list[str]] = {
     "대한항공": ["korean air", "kal"],
 }
 
-NODE_TYPES = ("Customer", "Document", "Chunk", "System", "IssueType")
+_APPROVED_TERMS = _load_domain_terms()
+if _APPROVED_TERMS:
+    # 검수 통과 용어는 System 사전에 합류. 기존 항목을 덮어쓰지 않는다.
+    for _canon, _variants in _APPROVED_TERMS.items():
+        SYSTEM_TERMS.setdefault(_canon, _variants)
+
+NODE_TYPES = ("Customer", "Document", "Chunk", "System", "IssueType", "Ticket", "Person")
 
 EDGE_TYPES = (
     "HAS_DOCUMENT", "BELONGS_TO", "HAS_CHUNK", "PART_OF",
     "MENTIONS", "MENTIONED_IN", "HAS_ISSUE", "OCCURS_IN",
+    "REQUESTED_BY", "HAS_TICKET", "HANDLED", "HANDLED_BY",
 )
+
+# CSV 접수내역 임포트가 티켓 1건마다 마크다운 1개를 만들어 넣는 폴더.
+# 폴더=고객사 규칙이 적용되면 가짜 고객사 하나에 티켓 수백 건이 문서로
+# 매달려 그래프 전체를 압도한다. 문서 경로로는 제외하고, 대신
+# maintenance_requests 테이블에서 Ticket/Person 노드로 적재한다.
+TICKET_FOLDERS = {"유지보수_접수내역", "유지보수 접수내역"}
 
 # 질의 의도별 허용 엣지. 무제한 확장은 노이즈를 폭증시킨다.
 #
@@ -162,7 +206,13 @@ class Graph:
     built_at: float = 0.0
     fingerprint: str = ""
     doc_count: int = 0
+    ticket_count: int = 0
+    ticket_docs_skipped: int = 0
     excluded: list[str] = field(default_factory=list)
+    # 사전 후보 마이닝용 문서빈도. term -> 등장 문서 수
+    term_doc_freq: dict[str, int] = field(default_factory=dict)
+    term_customers: dict[str, set[str]] = field(default_factory=dict)
+    term_doc_total: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +281,11 @@ def _is_excluded(source: str) -> bool:
 # 그래프 구축
 # ---------------------------------------------------------------------------
 
-def build_graph(records: Sequence[Any]) -> Graph:
+def _norm_customer(name: str) -> str:
+    return re.sub(r"[\s_]+", "", (name or "")).lower()
+
+
+def build_graph(records: Sequence[Any], tickets: Sequence[dict] | None = None) -> Graph:
     graph = Graph()
     next_id = 1
     keys: dict[tuple[str, str], int] = {}
@@ -255,16 +309,22 @@ def build_graph(records: Sequence[Any]) -> Graph:
         graph.adjacency[src].append((dst, edge_type))
 
     used = 0
+    skipped_tickets = 0
     for record in records:
         source = getattr(record, "source", "") or ""
         if _is_excluded(source):
             graph.excluded.append(source)
             continue
+
+        customer = (getattr(record, "customer", "") or "").strip() or "_공통"
+        # 티켓 마크다운 사본은 문서 경로에서 제외 (아래에서 Ticket 노드로 적재)
+        if customer in TICKET_FOLDERS or source.split("/", 1)[0] in TICKET_FOLDERS:
+            skipped_tickets += 1
+            continue
+
         if used >= GRAPH_MAX_DOCS:
             break
         used += 1
-
-        customer = (getattr(record, "customer", "") or "").strip() or "_공통"
         title = (getattr(record, "title", "") or "").strip() or source
         content = getattr(record, "content", "") or ""
 
@@ -272,6 +332,16 @@ def build_graph(records: Sequence[Any]) -> Graph:
         doc_id = node("Document", source, title, customer=customer, source=source)
         edge(cust_id, doc_id, "HAS_DOCUMENT")
         edge(doc_id, cust_id, "BELONGS_TO")
+
+        # 사전 후보 마이닝: 문서 단위 유니크 용어 집계 (본문 전체 기준).
+        # 고객사 집합도 함께 모은다 — 특정 고객사에 몰린 용어가 도메인 어휘일
+        # 가능성이 높고, 전 고객사에 고루 퍼진 것은 템플릿 상용구다.
+        graph.term_doc_total += 1
+        for term in set(_TERM_RE.findall(content.lower())):
+            if len(term) < 2 or term.isdigit() or term in _TERM_STOP:
+                continue
+            graph.term_doc_freq[term] = graph.term_doc_freq.get(term, 0) + 1
+            graph.term_customers.setdefault(term, set()).add(customer)
 
         for ordinal, (heading_path, body) in enumerate(chunk_document(content)):
             chunk_key = f"{source}#{ordinal:04d}"
@@ -295,6 +365,53 @@ def build_graph(records: Sequence[Any]) -> Graph:
                 edge(iid, chunk_id, "OCCURS_IN")
 
     graph.doc_count = used
+    graph.ticket_docs_skipped = skipped_tickets
+
+    # --- 티켓 / 담당자 (정규화 테이블에서) -------------------------------
+    # 고객사 이름이 문서 폴더명과 정확히 일치하지 않을 수 있으므로 정규화 매칭.
+    cust_by_norm = {
+        _norm_customer(n.label): n.id
+        for n in graph.nodes if n.type == "Customer"
+    }
+    ticket_count = 0
+    for row in (tickets or []):
+        cust_name = (row.get("customer") or "").strip()
+        if not cust_name:
+            continue
+        cust_id = cust_by_norm.get(_norm_customer(cust_name))
+        if cust_id is None:
+            # 문서가 없는 고객사도 티켓으로는 존재할 수 있다
+            cust_id = node("Customer", cust_name, cust_name, customer=cust_name)
+            cust_by_norm[_norm_customer(cust_name)] = cust_id
+
+        ticket_count += 1
+        label = (row.get("title") or f"접수 {row.get('idx')}")[:60]
+        tid = node("Ticket", f"ticket:{row.get('idx')}", label,
+                   customer=cust_name, source=row.get("source"))
+        edge(tid, cust_id, "REQUESTED_BY")
+        edge(cust_id, tid, "HAS_TICKET")
+
+        for key in ("manager_id", "worker_id"):
+            pid_raw = row.get(key)
+            if pid_raw in (None, "", 0):
+                continue
+            pid = node("Person", f"person:{pid_raw}", f"담당자 {pid_raw}")
+            edge(pid, tid, "HANDLED")
+            edge(tid, pid, "HANDLED_BY")
+
+        # 티켓 제목에서도 시스템·이슈유형을 추출해 문서 쪽 엔티티와 연결
+        systems, issues = extract_entities(label)
+        for name in systems:
+            sid = node("System", name, name)
+            edge(tid, sid, "MENTIONS")
+            edge(sid, tid, "MENTIONED_IN")
+        for name in issues:
+            iid = node("IssueType", name, name)
+            edge(tid, iid, "HAS_ISSUE")
+            edge(iid, tid, "OCCURS_IN")
+
+    graph.ticket_count = ticket_count
+
     for nid, neighbours in graph.adjacency.items():
         graph.by_id[nid].degree = len(neighbours)
 
@@ -444,7 +561,7 @@ def _fingerprint(records: Sequence[Any]) -> str:
     return f"{count}:{digest.hexdigest()[:12]}"
 
 
-def get_graph(loader, *, refresh: bool = False) -> Graph:
+def get_graph(loader, *, refresh: bool = False, ticket_loader=None) -> Graph:
     """loader() -> list[DocRecord]. 지문이 같고 TTL 내면 캐시를 재사용한다."""
     global _cache, _last_rebuild
     with _cache_lock:
@@ -458,7 +575,13 @@ def get_graph(loader, *, refresh: bool = False) -> Graph:
         if not refresh and _cache is not None and _cache.fingerprint == fingerprint:
             _cache.built_at = now
             return _cache
-        graph = build_graph(records)
+        tickets: list[dict] = []
+        if ticket_loader is not None:
+            try:
+                tickets = ticket_loader() or []
+            except Exception:
+                tickets = []
+        graph = build_graph(records, tickets)
         graph.fingerprint = fingerprint
         _cache = graph
         _last_rebuild = time.time()
@@ -498,6 +621,8 @@ def stats(graph: Graph) -> dict[str, Any]:
     total_chunks = len(chunk_ids) or 1
     return {
         "docCount": graph.doc_count,
+        "ticketCount": graph.ticket_count,
+        "ticketDocsSkipped": graph.ticket_docs_skipped,
         "nodeCount": len(graph.nodes),
         "edgeCount": len(graph.edges),
         "nodeCounts": node_counts,
@@ -520,6 +645,7 @@ def serialize(
     *,
     customers: Sequence[str] | None = None,
     max_chunks_per_doc: int = 4,
+    max_tickets_per_customer: int = 8,
     include_chunks: bool = True,
 ) -> dict[str, Any]:
     """시각화용 서브그래프.
@@ -532,13 +658,28 @@ def serialize(
     keep: set[int] = set()
 
     for node in graph.nodes:
-        if node.type in ("System", "IssueType"):
+        if node.type in ("System", "IssueType", "Person"):
             continue
         if wanted is not None and (node.customer or "") not in wanted:
             continue
         if node.type == "Chunk" and (not include_chunks or max_chunks_per_doc <= 0):
             continue
+        # 티켓은 고객사당 수백 건까지 갈 수 있어 시각화에서는 상한을 둔다
+        if node.type == "Ticket" and max_tickets_per_customer <= 0:
+            continue
         keep.add(node.id)
+
+    if max_tickets_per_customer > 0:
+        cust_ticket_seen: dict[int, int] = {}
+        allowed_tickets: set[int] = set()
+        for src, dst, edge_type in graph.edges:
+            if edge_type != "HAS_TICKET" or src not in keep or dst not in keep:
+                continue
+            seen = cust_ticket_seen.get(src, 0)
+            if seen < max_tickets_per_customer:
+                allowed_tickets.add(dst)
+                cust_ticket_seen[src] = seen + 1
+        keep = {n for n in keep if graph.by_id[n].type != "Ticket"} | allowed_tickets
 
     if include_chunks and max_chunks_per_doc > 0:
         doc_chunk_seen: dict[int, int] = {}
@@ -565,16 +706,110 @@ def serialize(
         keep = set(ordered[:SERIALIZE_MAX_NODES])
 
     for src, dst, edge_type in graph.edges:
-        if edge_type in ("MENTIONS", "HAS_ISSUE") and src in keep:
+        if edge_type in ("MENTIONS", "HAS_ISSUE", "HANDLED_BY") and src in keep:
             keep.add(dst)
 
+    visible = ("HAS_DOCUMENT", "HAS_CHUNK", "MENTIONS", "HAS_ISSUE", "HAS_TICKET", "HANDLED_BY")
     nodes = [graph.by_id[n].to_dict() for n in keep]
     edges = [
         {"s": s, "t": t, "type": e}
         for s, t, e in graph.edges
-        if s in keep and t in keep and e in ("HAS_DOCUMENT", "HAS_CHUNK", "MENTIONS", "HAS_ISSUE")
+        if s in keep and t in keep and e in visible
     ]
     return {"nodes": nodes, "edges": edges, "truncated": truncated}
+
+
+_TERM_RE = re.compile(r"[가-힣]{2,}|[A-Za-z][A-Za-z0-9._-]{1,}")
+_TERM_STOP = {
+    "있습니다", "합니다", "입니다", "합니다만", "때문", "경우", "관련", "대한", "위한",
+    "통해", "이후", "이전", "내용", "확인", "가능", "사용", "진행", "처리", "필요",
+    "해당", "다음", "아래", "위의", "그리고", "하지만", "또한", "등을", "등의",
+    "http", "https", "www", "com", "kr", "co", "html", "php", "index",
+    "추가", "작업", "요약", "보고서", "작성", "수정", "방법", "고객사", "직접",
+    "매뉴얼", "출처", "원문", "유의사항", "정보", "설명", "기준", "이용", "제공",
+    "아니오", "네", "예시", "참고", "문서", "항목", "부분", "이것", "그것",
+}
+
+# 형태소 분석기가 없으므로 조사·어미가 붙은 표면형을 제거하기 위한 임시 규칙.
+# 근본 해법은 kiwipiepy 도입이며 이건 그때까지의 땜질이다.
+_KO_SUFFIX = (
+    "에서", "에게", "으로", "로서", "로써", "이나", "거나", "지만", "면서",
+    "습니다", "입니다", "합니다", "됩니다", "니다", "세요", "시오",
+    "것입니다", "것이다", "하는", "되는", "관련된", "위해", "통한",
+    "은", "는", "이", "가", "을", "를", "의", "에", "와", "과", "도", "만",
+)
+
+
+def _is_encoding_fragment(term: str) -> bool:
+    """퍼센트 인코딩된 한글 URL 의 파편.
+
+    '%EB%A9%94...' 같은 URL 이 본문에 있으면 정규식이 eb, ec, ed, a9 같은
+    2자리 16진수 조각을 용어로 잡는다. 한글 UTF-8 은 EA~ED 로 시작하므로
+    특히 자주 나온다.
+    """
+    return bool(re.fullmatch(r"[0-9a-f]{2}", term))
+
+
+def _looks_inflected(term: str) -> bool:
+    """조사·어미가 붙은 표면형으로 보이면 True.
+
+    '고객사와', '매뉴얼에서', '바꾸지' 같은 것을 걸러낸다.
+    보수적으로: 접미사를 떼고 남은 어간이 2자 이상일 때만 굴절형으로 본다.
+    """
+    if not re.fullmatch(r"[가-힣]+", term):
+        return False
+    for suf in _KO_SUFFIX:
+        if term.endswith(suf) and len(term) - len(suf) >= 2:
+            return True
+    return False
+
+
+def mine_terms(graph: Graph, *, top: int = 80, min_docs: int = 3) -> list[dict[str, Any]]:
+    """코퍼스에서 사전 후보 용어를 추출한다.
+
+    사전이 소스코드에 하드코딩된 26개뿐이고 그마저 추측으로 만든 것이라,
+    실제 코퍼스가 어떤 용어를 쓰는지 근거 없이 사전을 늘릴 수 없다.
+    문서 빈도는 build_graph() 에서 본문 전체를 대상으로 집계해 둔다
+    (미리보기 110자만 보면 표본이 너무 작다).
+    여기서는 '문서 빈도가 충분히 높지만 너무 흔하지도 않은' 용어를 뽑는다.
+
+    - df 가 너무 낮으면(min_docs 미만) 일회성 표현
+    - df 비율이 너무 높으면(60% 초과) 변별력 없는 허브 후보
+    - 이미 사전에 있는 용어는 제외
+
+    반환값은 '자동 확정'이 아니라 사람이 검수할 후보 목록이다.
+    """
+    known: set[str] = set()
+    for name, variants in list(SYSTEM_TERMS.items()) + list(ISSUE_TERMS.items()):
+        known.add(name.lower())
+        known.update(v.lower() for v in variants)
+
+    n_docs = graph.term_doc_total or 1
+    n_customers = len({n.label for n in graph.nodes if n.type == "Customer"}) or 1
+    scored = []
+    for term, df in graph.term_doc_freq.items():
+        if term in known or df < min_docs:
+            continue
+        if _looks_inflected(term) or _is_encoding_fragment(term):
+            continue
+        if term.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+            continue
+        share = df / n_docs
+        if share > 0.35:
+            continue
+        # 특정 고객사에 몰린 용어일수록 도메인 어휘일 가능성이 높다.
+        # 전 고객사에 고루 퍼진 용어는 템플릿 상용구다.
+        cust_share = len(graph.term_customers.get(term, ())) / n_customers
+        concentration = 1.0 - min(cust_share, 1.0)
+        scored.append({
+            "term": term,
+            "docFreq": df,
+            "share": round(share, 4),
+            "customers": len(graph.term_customers.get(term, ())),
+            "score": round(df * (1.0 - share) * (0.3 + 0.7 * concentration), 2),
+        })
+    scored.sort(key=lambda t: -t["score"])
+    return scored[:top]
 
 
 def customer_list(graph: Graph) -> list[dict[str, Any]]:
