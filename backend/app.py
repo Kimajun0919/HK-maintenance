@@ -85,7 +85,16 @@ def _rag_v2():
         return None
 
 
+def _invalidate_v3_graph() -> None:
+    try:
+        import graph_v3
+        graph_v3.invalidate()
+    except Exception:
+        pass
+
+
 def _refresh_after_doc_change(*sources: str, force: bool = False) -> dict | None:
+    _invalidate_v3_graph()
     if SUPABASE_ENABLED and not rag.RAG_STARTUP_INDEX:
         result = None
         for source in sources:
@@ -96,6 +105,7 @@ def _refresh_after_doc_change(*sources: str, force: bool = False) -> dict | None
 
 
 def _refresh_after_folder_change(folder_name: str, force: bool = False) -> dict | None:
+    _invalidate_v3_graph()
     if SUPABASE_ENABLED and not rag.RAG_STARTUP_INDEX:
         return rag.sync_folder_chunk_index(folder_name, force=True)
     return rag.refresh_index(force=force)
@@ -907,7 +917,7 @@ def create_api_app():
     async def no_cache_frontend_assets(request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path == "/" or path.startswith("/web/"):
+        if path == "/" or path == "/v3" or path.startswith("/web/"):
             response.headers["cache-control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["pragma"] = "no-cache"
             response.headers["expires"] = "0"
@@ -923,6 +933,121 @@ def create_api_app():
     @api_app.head("/")
     def home_head():
         return Response(status_code=200)
+
+    @api_app.get("/v3", response_class=HTMLResponse)
+    def v3_home():
+        page = WEB_DIR / "v3.html"
+        if page.exists():
+            return FileResponse(page)
+        return HTMLResponse("<h1>HK Maintenance v3</h1><p>frontend/v3.html is missing.</p>")
+
+    @api_app.head("/v3")
+    def v3_home_head():
+        return Response(status_code=200)
+
+    def _v3_graph(refresh: bool = False):
+        import graph_v3
+        return graph_v3, graph_v3.get_graph(_doc_records, refresh=refresh)
+
+    @api_app.get("/api/v3/stats")
+    def api_v3_stats(refresh: int = Query(0, ge=0, le=1)):
+        try:
+            gv3, graph = _v3_graph(refresh=bool(refresh))
+            payload = gv3.stats(graph)
+            payload["storage"] = "supabase" if SUPABASE_ENABLED else "files"
+            payload["customers"] = gv3.customer_list(graph)
+            return payload
+        except Exception as exc:
+            return _json_response({"error": str(exc)}, status_code=500)
+
+    @api_app.get("/api/v3/graph")
+    def api_v3_graph(
+        customers: str = Query("", min_length=0),
+        maxChunksPerDoc: int = Query(4, ge=0, le=20),
+        includeChunks: int = Query(1, ge=0, le=1),
+        refresh: int = Query(0, ge=0, le=1),
+    ):
+        try:
+            gv3, graph = _v3_graph(refresh=bool(refresh))
+            wanted = [c.strip() for c in customers.split(",") if c.strip()][:12] or None
+            # 고객사 필터가 없으면 청크를 내보내지 않는다. 청크에는 본문
+            # 미리보기가 붙어 있어, 필터 없는 한 번의 요청으로 코퍼스 전량의
+            # 본문 표본이 빠져나갈 수 있다. 인증이 없는 현 단계의 완화책이며
+            # Phase 3 에서 RBAC 으로 대체된다.
+            include = bool(includeChunks) and wanted is not None
+            payload = gv3.serialize(
+                graph,
+                customers=wanted,
+                max_chunks_per_doc=maxChunksPerDoc if include else 0,
+                include_chunks=include,
+            )
+            payload["customers"] = wanted or []
+            payload["chunksIncluded"] = include
+            return payload
+        except Exception as exc:
+            return _json_response({"error": str(exc)}, status_code=500)
+
+    @api_app.get("/api/v3/expand")
+    def api_v3_expand(
+        q: str = Query("", min_length=0),
+        seeds: str = Query("", min_length=0),
+        hop: int = Query(2, ge=1, le=3),
+        hubPenalty: int = Query(1, ge=0, le=1),
+        intent: str = Query("", min_length=0),
+    ):
+        try:
+            gv3, graph = _v3_graph()
+            seed_ids: list[int] = []
+            for part in seeds.split(","):
+                part = part.strip()
+                if part.isdigit() and int(part) in graph.adjacency:
+                    seed_ids.append(int(part))
+            origin_ids = list(seed_ids)
+            linked = gv3.link_entities(graph, q) if q else []
+            seed_ids.extend(n.id for n in linked)
+            seed_ids = list(dict.fromkeys(seed_ids))
+            if not seed_ids:
+                return {"seeds": [], "linked": [], "intent": "", "reached": [], "counts": {}}
+
+            walk_seeds = gv3.resolve_seeds(graph, seed_ids)
+            resolved = (intent or gv3.detect_intent(q)) if q else (intent or "default")
+            edge_types = gv3.INTENT_EDGES.get(resolved, gv3.INTENT_EDGES["default"])
+            reached = gv3.expand(
+                graph, walk_seeds,
+                edge_types=edge_types, max_hop=hop,
+                use_hub_penalty=bool(hubPenalty),
+            )
+            for oid in origin_ids:
+                reached.pop(oid, None)
+            counts: dict[str, int] = {}
+            for nid in reached:
+                node_type = graph.by_id[nid].type
+                counts[node_type] = counts.get(node_type, 0) + 1
+
+            # 시드 청크가 속한 고객사 수. 확장이 몇 개 고객사로 번졌는지가
+            # 실제로 의미 있는 지표다. (도달 청크는 시드가 결과에서 제외되므로
+            # 정의상 전부 '타 고객사'가 되어 별도 지표로서 정보량이 없다)
+            seed_customers = {graph.by_id[s].customer for s in walk_seeds if graph.by_id[s].customer}
+            reached_customers = {
+                graph.by_id[nid].customer for nid in reached
+                if graph.by_id[nid].type == "Chunk" and graph.by_id[nid].customer
+            }
+            total_customers = sum(1 for n in graph.nodes if n.type == "Customer") or 1
+            return {
+                "seeds": seed_ids,
+                "walkSeeds": walk_seeds,
+                "linked": [{"id": n.id, "type": n.type, "label": n.label} for n in linked],
+                "intent": resolved,
+                "edgeTypes": list(edge_types),
+                "reached": [{"id": nid, "score": round(score, 4)} for nid, score in reached.items()],
+                "counts": counts,
+                "seedCustomers": sorted(c for c in seed_customers if c),
+                "reachedCustomers": len(reached_customers),
+                "totalCustomers": total_customers,
+                "spread": round(len(reached_customers) / total_customers, 4),
+            }
+        except Exception as exc:
+            return _json_response({"error": str(exc)}, status_code=500)
 
     @api_app.get("/favicon.ico")
     def favicon():
